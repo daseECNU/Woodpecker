@@ -1,0 +1,10 @@
+## 这是个DBI示例文件，可以有空行，每行只能有一句SQL语句
+## 分割线---下为clear_dbi的执行内容
+
+create table dbi_test(c1 int primary key, c2 int);
+
+insert into dbi_test values(1,1),(2,2);
+
+-------------------------------------------------------------
+drop table dbi_test;
+

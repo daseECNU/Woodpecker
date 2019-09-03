@@ -1,0 +1,3127 @@
+//Woodpecker parser file
+
+options
+{
+	//Token定义的词是否区分大小写，true不区分大小写
+	IGNORE_CASE = false;
+	//static指示是否生成静态的解析器类
+	STATIC = false;
+	
+	//将输入流设置为UNICODE，支持中文注释
+	JAVA_UNICODE_ESCAPE = true;
+	UNICODE_INPUT = true;
+}
+
+PARSER_BEGIN(WoodpeckerParser)
+package edu.ecnu.woodpecker.executor.parser;
+
+import java.io.*;
+import java.util.*;
+import java.util.Map.Entry;
+import java.io.PrintWriter;
+
+import edu.ecnu.woodpecker.controller.TestController;
+import edu.ecnu.woodpecker.sql.DbmsBrand;
+
+import com.alibaba.druid.sql.SQLUtils;
+
+public class WoodpeckerParser
+{
+	// key是变量名，value是变量的值
+	static Map<String, Object > varValueMap = null;
+	// key是变量名，value是变量对应的数据类型
+	static Map<String, String> varTypeMap = null;
+	
+	String var = null;
+	Object value = null;
+	StringBuilder type = new StringBuilder();
+	
+	// 用于存储连续声明时第一个变量的数据类型
+	String lastType = null;
+	
+	// 用于标志一个变量是否是List
+	static boolean isList;
+	List<Object> listValue = new ArrayList<Object>();
+	
+	// 中间结果集
+	static PrintWriter midResultPW = null;
+	
+	// 行号和文法编号
+	public static int lineNumber;
+	static int grammarNumber = 0;
+	
+	// 判断文法编号的状态位，末尾4位分别表示是否有数据类型，是否有变量赋值，是否有关键字，是否处在条件表达式中
+	static byte staBit = 0;
+	
+	// 存储当前行的内容
+	static StringBuilder pwLine = new StringBuilder();
+	
+	// 判断是不是只声明了变量
+	static boolean canPrint = true;
+	// Current database brand
+	static DbmsBrand brand = null;
+	
+	public static boolean parseCaseFile(File caseFile)
+	{
+	    brand = TestController.getDatabase();
+		// 每个文件重置行号
+		lineNumber = 1;
+		WoodpeckerParser wpParser = null;
+		InputStreamReader isr = null;
+		isList = false;
+		try
+		{
+			isr = new InputStreamReader(new FileInputStream(caseFile),"utf-8");
+			wpParser = new WoodpeckerParser(isr);
+			wpParser.parse();
+			isAllVarDeclarative();
+		}
+		catch(Exception e)
+		{
+			// 返回此次parse失败
+			System.out.println(String.format("Error in line: %d", lineNumber));
+			e.printStackTrace();
+			return false;
+		}
+		finally
+		{
+			try
+			{
+				isr.close();
+			}catch(Exception e){}
+		}
+		return true;
+	}
+		
+	// 设置变量表
+	public static void setVarMap(Map<String,Object> varValueMap,Map<String,String> varTypeMap)
+	{
+		WoodpeckerParser.varValueMap = varValueMap;
+		WoodpeckerParser.varTypeMap = varTypeMap;
+	}
+	
+	public static void setMidResultPW(PrintWriter midResultPW)
+	{
+		WoodpeckerParser.midResultPW = midResultPW;
+	}
+	
+	// 判断变量表的所有变量是否都已声明
+	private static void isAllVarDeclarative() throws Exception
+	{
+		for(Entry<String,String> entry : varTypeMap.entrySet())
+		{
+			if(entry.getValue().length()==0)
+				throw new Exception(String.format("variable %s isn't declarative", entry.getKey()));
+		}
+	}
+	
+	public static void main(String args []) throws ParseException
+	{}
+	
+}
+PARSER_END(WoodpeckerParser)
+
+
+/* white space and comment */
+SKIP ://ignored character
+{
+  " " | "\r" | "\t" | "\n"
+	{
+		WoodpeckerParser.lineNumber++;
+	}
+| < "##" (~["\n","\r"])*("\n"|"\r"|"\r\n")? >
+	{
+		WoodpeckerParser.lineNumber++;
+	}
+}
+
+
+/* key words of grammar */
+TOKEN :
+{
+  < GET_CONN : "GET_CONN" >
+| < GET_STAT : "GET_STAT" >
+| < GET_PSTAT : "GET_PSTAT" >
+| < GET_CSTAT : "GET_CSTAT" >
+| < SQL : "SQL" >
+| < PSQL : "PSQL" >
+| < CSQL : "CSQL" >
+| < TX : "TX" >
+| < VERIFY : "VERIFY" >
+| < SLEEP : "SLEEP" >
+| < ST : "ST" >
+| < IMPORT_DBI : "IMPORT_DBI" >
+| < CLEAR_DBI : "CLEAR_DBI" >
+| < IMPORT_IRS : "IMPORT_IRS" >
+| < SYS : "SYS" >
+| < DEF_PROC : "DEF_PROC" >
+| < CONTAIN : "CONTAIN" >
+| < CAL : "CAL" >
+| < IF : "if" >
+| < ELSE : "else" >
+| < WHILE : "while" >
+| < ERROR : "ERROR" >
+| < INDEX_OF : "INDEX_OF" >
+| < GRD : "GRD" >
+| < CPU : "CPU">
+| < MEM : "MEM">
+| < DISK : "DISK">
+| < NET : "NET">
+| < TABLE : "TABLE">
+| < COLUMN : "COLUMN">
+| < IMPORT_TBL : "IMPORT_TBL">
+| < CLEAR_TBL : "CLEAR_TBL">
+| < TXN : "TXN">
+| < END_TXN : "END_TXN">
+| < TXN_LOADING : "TXN_LOADING">
+| < MULTIPLE : "MULTIPLE">
+| < END_MULTIPLE : "END_MULTIPLE">
+| <BRANCH : "BRANCH">
+| <BRANCH_DELIMITER : "BRANCH_DELIMITER">
+| <END_BRANCH : "END_BRANCH">
+| <INSERT : "INSERT">
+| <REPLACE : "REPLACE">
+| <SELECT : "SELECT">
+| <DELETE : "DELETE">
+| <UPDATE : "UPDATE">
+| <SelectForUpdate : "SelectForUpdate">
+| <PARALL : "PARALL">
+| <MID_PARALL : "MID_PARALL">
+| <END_PARALL : "END_PARALL">
+}
+
+
+/* data type */
+TOKEN :
+{
+  < BOOLEAN: "boolean" >
+| < BYTE: "byte" >
+| < CHAR: "char" >
+| < DOUBLE: "double" >
+| < FLOAT: "float" >
+| < INT: "int" >
+| < LONG: "long" >
+| < SHORT: "short" >
+| < STRING: "String" >
+| < DECIMAL : "Decimal" >
+| < CONNECTION : "Connection" >
+| < STATEMENT : "Statement" >
+| < PSTATEMENT : "PStatement" >
+| < CSTATEMENT : "CStatement" >
+| < LIST : "List" >
+| < RESULTSET : "ResultSet" >
+| < IDEALRESULTSET : "IdealResultSet" >
+| < PERFORMANCERESULT : "PerformanceResult" >
+| < TIMESTAMP : "Timestamp" >
+| < VARCHAR : "varchar" >
+}
+
+
+/* 参数类型	*/
+TOKEN:
+{
+	< MS_CATEGORY : "master" | "slave" >
+|	< TX_OP : "start" | "commit" | "rollback" >
+|	< TIME_UNIT : "microsecond" | "millisecond" | "second" | "minute" | "hour" >
+|	< IP_ADDRESS : 
+		( ( "2" ["0"-"4"] ["0"-"9"] | "25" ["0"-"5"] | (["0","1"])? (["0"-"9"]) (["0"-"9"])? ) "." ){3} ( "2" ["0"-"4"] ["0"-"9"] | "25" ["0"-"5"] | (["0","1"])? (["0"-"9"]) (["0"-"9"])? )
+	>
+|	< IS_CLUSTER_AVAILABLE : "is_cluster_available" >
+|	< AWAIT_AVAILABLE : "await_available" >
+|	< MERGE : "merge" >
+|	< IS_MERGE_DONE : "is_merge_done" >
+|	< AWAIT_MERGE_DONE : "await_merge_done" >
+|	< REELECT : "reelect" >
+|	< EXIST_MASTER : "exist_master" >
+|	< KILL_SERVER : "kill_server" >
+|	< START_SERVER : "start_server" >
+|	< ADD_SERVER : "add_server" >
+|	< SET_MASTER : "set_master" >
+|	< GATHER_STATISTICS : "gather_statistics" >
+|	< IS_GATHER_DONE : "is_gather_done" >
+|	< SERVER_OPTION : 
+		"-master" | "-slave" | "-slave_all" | "-all" | "-ups_master" | "-ups_slave" | "-ups_slave_all" | "-ups_all" | "-rs_master" | "-rs_slave" | "-rs_slave_all" | "-rs_all" | "-lms_master" | "-lms_slave" | "-lms_slave_all" | "-lms_all" |
+		"-ms_master" | "-ms_master_all" | "-ms_slave" | "-ms_slave_all" | "-cs_master" | "-cs_master_all" | "-cs_slave" | "-cs_slave_all"
+	>
+|	< PROCEDURE_PARAM_TYPE : "in" | "out" | "inout" >
+|	< PK : "PK" >
+|	< RESULT_HANDLE : "clean" | "remain" >
+|	< EXECUTE_TYPE : "synchronous" | "asynchronous" >
+|	< SET_TYPE : "set_type" >
+|   < FK : "FK">
+|   < INDEX : "index">
+|	< FILTER : "filter">
+|	< APPEND : "append">
+|	< DISTRIBUTION_TYPE : "unique" | "uniform" | "poisson" | "normal" | "zipfian" >
+}
+
+
+/* LITERALS */
+TOKEN :
+{
+  < INTEGER_LITERAL:
+        <DECIMAL_LITERAL> (["l","L"])?
+      | <HEX_LITERAL> (["l","L"])?
+      | <OCTAL_LITERAL> (["l","L"])?
+  >
+|
+  < #DECIMAL_LITERAL: ["1"-"9"] (["0"-"9"])* >
+|
+  < #HEX_LITERAL: "0" ["x","X"] (["0"-"9","a"-"f","A"-"F"])+ >
+|
+  < #OCTAL_LITERAL: "0" (["0"-"7"])* >
+|
+  < FLOATING_POINT_LITERAL:
+        (["0"-"9"])+ "." (["0"-"9"])* (<EXPONENT>)? (["f","F","d","D"])?
+      | "." (["0"-"9"])+ (<EXPONENT>)? (["f","F","d","D"])?
+      | (["0"-"9"])+ <EXPONENT> (["f","F","d","D"])?
+      | (["0"-"9"])+ (<EXPONENT>)? ["f","F","d","D"]
+  >
+|
+  < #EXPONENT: ["e","E"] (["+","-"])? (["0"-"9"])+ >
+|
+  < CHARACTER_LITERAL:
+      "'"
+      (   (~["'","\\","\n","\r"])
+        | ("\\"
+            ( ["n","t","b","r","f","\\","'","\""]
+            | ["0"-"7"] ( ["0"-"7"] )?
+            | ["0"-"3"] ["0"-"7"] ["0"-"7"]
+            )
+          )
+      )
+      "'"
+  >
+| < TRUE: "true" >
+| < FALSE: "false" >
+| < NULL: "null" >
+| < CALCULATION: 
+      <CAL> <LBRACKET>
+	  (   (~["\"","\\","\n","\r","]"])
+        | ("\\"
+            ( ["n","t","b","r","f"]
+            | ["0"-"7"] ( ["0"-"7"] )?
+            | ["0"-"3"] ["0"-"7"] ["0"-"7"]
+            )
+          )
+      )*
+	  <RBRACKET>
+  >
+}
+
+
+/* SEPARATORS */
+TOKEN :
+{
+  < LPAREN: "(" >
+| < RPAREN: ")" >
+| < LBRACE: "{" >
+| < RBRACE: "}" >
+| < LBRACKET: "[" >
+| < RBRACKET: "]" >
+| < SEMICOLON: ";" >
+| < COMMA: "," >
+| < DOT: "." >
+}
+
+
+/* OPERATORS */
+TOKEN :
+{
+  < ASSIGN: "=" >
+| < GT: ">" >
+| < LT: "<" >
+| < BANG: "!" >
+| < TILDE: "~" >
+| < HOOK: "?" >
+| < COLON: ":" >
+| < EQ: "==" >
+| < LE: "<=" >
+| < GE: ">=" >
+| < NE: "!=" >
+| < SC_OR: "||" >
+| < SC_AND: "&&" >
+| < INCR: "++" >
+| < DECR: "--" >
+| < PLUS: "+" >
+| < MINUS: "-" >
+| < STAR: "*" >
+| < SLASH: "/" >
+| < BIT_AND: "&" >
+| < BIT_OR: "|" >
+| < XOR: "^" >
+| < REM: "%" >
+| < LSHIFT: "<<" >
+| < RSIGNEDSHIFT: ">>" >
+| < RUNSIGNEDSHIFT: ">>>" >
+| < PLUSASSIGN: "+=" >
+| < MINUSASSIGN: "-=" >
+| < STARASSIGN: "*=" >
+| < SLASHASSIGN: "/=" >
+| < ANDASSIGN: "&=" >
+| < ORASSIGN: "|=" >
+| < XORASSIGN: "^=" >
+| < REMASSIGN: "%=" >
+| < LSHIFTASSIGN: "<<=" >
+| < RSIGNEDSHIFTASSIGN: ">>=" >
+| < RUNSIGNEDSHIFTASSIGN: ">>>=" >
+//| < IN : "in">
+| < LIKE : "like">
+| <CONTAINS : "contains">
+| <ALL_ARE : "all_are">
+}
+
+
+/* 标识符，可以是变量名，函数名，类名等 */
+TOKEN :
+{
+  < IDENTIFIER: <LETTER> (<PART_LETTER>)* >
+|
+  < #LETTER:
+      [  // all chars for which Character.isIdentifierStart is true
+         "$",
+         "A"-"Z",
+         "_",
+         "a"-"z",
+         "\u00a2"-"\u00a5",
+         "\u00aa",
+         "\u00b5",
+         "\u00ba",
+         "\u00c0"-"\u00d6",
+         "\u00d8"-"\u00f6",
+         "\u00f8"-"\u021f",
+         "\u0222"-"\u0233",
+         "\u0250"-"\u02ad",
+         "\u02b0"-"\u02b8",
+         "\u02bb"-"\u02c1",
+         "\u02d0"-"\u02d1",
+         "\u02e0"-"\u02e4",
+         "\u02ee",
+         "\u037a",
+         "\u0386",
+         "\u0388"-"\u038a",
+         "\u038c",
+         "\u038e"-"\u03a1",
+         "\u03a3"-"\u03ce",
+         "\u03d0"-"\u03d7",
+         "\u03da"-"\u03f3",
+         "\u0400"-"\u0481",
+         "\u048c"-"\u04c4",
+         "\u04c7"-"\u04c8",
+         "\u04cb"-"\u04cc",
+         "\u04d0"-"\u04f5",
+         "\u04f8"-"\u04f9",
+         "\u0531"-"\u0556",
+         "\u0559",
+         "\u0561"-"\u0587",
+         "\u05d0"-"\u05ea",
+         "\u05f0"-"\u05f2",
+         "\u0621"-"\u063a",
+         "\u0640"-"\u064a",
+         "\u0671"-"\u06d3",
+         "\u06d5",
+         "\u06e5"-"\u06e6",
+         "\u06fa"-"\u06fc",
+         "\u0710",
+         "\u0712"-"\u072c",
+         "\u0780"-"\u07a5",
+         "\u0905"-"\u0939",
+         "\u093d",
+         "\u0950",
+         "\u0958"-"\u0961",
+         "\u0985"-"\u098c",
+         "\u098f"-"\u0990",
+         "\u0993"-"\u09a8",
+         "\u09aa"-"\u09b0",
+         "\u09b2",
+         "\u09b6"-"\u09b9",
+         "\u09dc"-"\u09dd",
+         "\u09df"-"\u09e1",
+         "\u09f0"-"\u09f3",
+         "\u0a05"-"\u0a0a",
+         "\u0a0f"-"\u0a10",
+         "\u0a13"-"\u0a28",
+         "\u0a2a"-"\u0a30",
+         "\u0a32"-"\u0a33",
+         "\u0a35"-"\u0a36",
+         "\u0a38"-"\u0a39",
+         "\u0a59"-"\u0a5c",
+         "\u0a5e",
+         "\u0a72"-"\u0a74",
+         "\u0a85"-"\u0a8b",
+         "\u0a8d",
+         "\u0a8f"-"\u0a91",
+         "\u0a93"-"\u0aa8",
+         "\u0aaa"-"\u0ab0",
+         "\u0ab2"-"\u0ab3",
+         "\u0ab5"-"\u0ab9",
+         "\u0abd",
+         "\u0ad0",
+         "\u0ae0",
+         "\u0b05"-"\u0b0c",
+         "\u0b0f"-"\u0b10",
+         "\u0b13"-"\u0b28",
+         "\u0b2a"-"\u0b30",
+         "\u0b32"-"\u0b33",
+         "\u0b36"-"\u0b39",
+         "\u0b3d",
+         "\u0b5c"-"\u0b5d",
+         "\u0b5f"-"\u0b61",
+         "\u0b85"-"\u0b8a",
+         "\u0b8e"-"\u0b90",
+         "\u0b92"-"\u0b95",
+         "\u0b99"-"\u0b9a",
+         "\u0b9c",
+         "\u0b9e"-"\u0b9f",
+         "\u0ba3"-"\u0ba4",
+         "\u0ba8"-"\u0baa",
+         "\u0bae"-"\u0bb5",
+         "\u0bb7"-"\u0bb9",
+         "\u0c05"-"\u0c0c",
+         "\u0c0e"-"\u0c10",
+         "\u0c12"-"\u0c28",
+         "\u0c2a"-"\u0c33",
+         "\u0c35"-"\u0c39",
+         "\u0c60"-"\u0c61",
+         "\u0c85"-"\u0c8c",
+         "\u0c8e"-"\u0c90",
+         "\u0c92"-"\u0ca8",
+         "\u0caa"-"\u0cb3",
+         "\u0cb5"-"\u0cb9",
+         "\u0cde",
+         "\u0ce0"-"\u0ce1",
+         "\u0d05"-"\u0d0c",
+         "\u0d0e"-"\u0d10",
+         "\u0d12"-"\u0d28",
+         "\u0d2a"-"\u0d39",
+         "\u0d60"-"\u0d61",
+         "\u0d85"-"\u0d96",
+         "\u0d9a"-"\u0db1",
+         "\u0db3"-"\u0dbb",
+         "\u0dbd",
+         "\u0dc0"-"\u0dc6",
+         "\u0e01"-"\u0e30",
+         "\u0e32"-"\u0e33",
+         "\u0e3f"-"\u0e46",
+         "\u0e81"-"\u0e82",
+         "\u0e84",
+         "\u0e87"-"\u0e88",
+         "\u0e8a",
+         "\u0e8d",
+         "\u0e94"-"\u0e97",
+         "\u0e99"-"\u0e9f",
+         "\u0ea1"-"\u0ea3",
+         "\u0ea5",
+         "\u0ea7",
+         "\u0eaa"-"\u0eab",
+         "\u0ead"-"\u0eb0",
+         "\u0eb2"-"\u0eb3",
+         "\u0ebd",
+         "\u0ec0"-"\u0ec4",
+         "\u0ec6",
+         "\u0edc"-"\u0edd",
+         "\u0f00",
+         "\u0f40"-"\u0f47",
+         "\u0f49"-"\u0f6a",
+         "\u0f88"-"\u0f8b",
+         "\u1000"-"\u1021",
+         "\u1023"-"\u1027",
+         "\u1029"-"\u102a",
+         "\u1050"-"\u1055",
+         "\u10a0"-"\u10c5",
+         "\u10d0"-"\u10f6",
+         "\u1100"-"\u1159",
+         "\u115f"-"\u11a2",
+         "\u11a8"-"\u11f9",
+         "\u1200"-"\u1206",
+         "\u1208"-"\u1246",
+         "\u1248",
+         "\u124a"-"\u124d",
+         "\u1250"-"\u1256",
+         "\u1258",
+         "\u125a"-"\u125d",
+         "\u1260"-"\u1286",
+         "\u1288",
+         "\u128a"-"\u128d",
+         "\u1290"-"\u12ae",
+         "\u12b0",
+         "\u12b2"-"\u12b5",
+         "\u12b8"-"\u12be",
+         "\u12c0",
+         "\u12c2"-"\u12c5",
+         "\u12c8"-"\u12ce",
+         "\u12d0"-"\u12d6",
+         "\u12d8"-"\u12ee",
+         "\u12f0"-"\u130e",
+         "\u1310",
+         "\u1312"-"\u1315",
+         "\u1318"-"\u131e",
+         "\u1320"-"\u1346",
+         "\u1348"-"\u135a",
+         "\u13a0"-"\u13f4",
+         "\u1401"-"\u166c",
+         "\u166f"-"\u1676",
+         "\u1681"-"\u169a",
+         "\u16a0"-"\u16ea",
+         "\u1780"-"\u17b3",
+         "\u17db",
+         "\u1820"-"\u1877",
+         "\u1880"-"\u18a8",
+         "\u1e00"-"\u1e9b",
+         "\u1ea0"-"\u1ef9",
+         "\u1f00"-"\u1f15",
+         "\u1f18"-"\u1f1d",
+         "\u1f20"-"\u1f45",
+         "\u1f48"-"\u1f4d",
+         "\u1f50"-"\u1f57",
+         "\u1f59",
+         "\u1f5b",
+         "\u1f5d",
+         "\u1f5f"-"\u1f7d",
+         "\u1f80"-"\u1fb4",
+         "\u1fb6"-"\u1fbc",
+         "\u1fbe",
+         "\u1fc2"-"\u1fc4",
+         "\u1fc6"-"\u1fcc",
+         "\u1fd0"-"\u1fd3",
+         "\u1fd6"-"\u1fdb",
+         "\u1fe0"-"\u1fec",
+         "\u1ff2"-"\u1ff4",
+         "\u1ff6"-"\u1ffc",
+         "\u203f"-"\u2040",
+         "\u207f",
+         "\u20a0"-"\u20af",
+         "\u2102",
+         "\u2107",
+         "\u210a"-"\u2113",
+         "\u2115",
+         "\u2119"-"\u211d",
+         "\u2124",
+         "\u2126",
+         "\u2128",
+         "\u212a"-"\u212d",
+         "\u212f"-"\u2131",
+         "\u2133"-"\u2139",
+         "\u2160"-"\u2183",
+         "\u3005"-"\u3007",
+         "\u3021"-"\u3029",
+         "\u3031"-"\u3035",
+         "\u3038"-"\u303a",
+         "\u3041"-"\u3094",
+         "\u309d"-"\u309e",
+         "\u30a1"-"\u30fe",
+         "\u3105"-"\u312c",
+         "\u3131"-"\u318e",
+         "\u31a0"-"\u31b7",
+         "\u3400"-"\u4db5",
+         "\u4e00"-"\u9fa5",
+         "\ua000"-"\ua48c",
+         "\uac00"-"\ud7a3",
+         "\uf900"-"\ufa2d",
+         "\ufb00"-"\ufb06",
+         "\ufb13"-"\ufb17",
+         "\ufb1d",
+         "\ufb1f"-"\ufb28",
+         "\ufb2a"-"\ufb36",
+         "\ufb38"-"\ufb3c",
+         "\ufb3e",
+         "\ufb40"-"\ufb41",
+         "\ufb43"-"\ufb44",
+         "\ufb46"-"\ufbb1",
+         "\ufbd3"-"\ufd3d",
+         "\ufd50"-"\ufd8f",
+         "\ufd92"-"\ufdc7",
+         "\ufdf0"-"\ufdfb",
+         "\ufe33"-"\ufe34",
+         "\ufe4d"-"\ufe4f",
+         "\ufe69",
+         "\ufe70"-"\ufe72",
+         "\ufe74",
+         "\ufe76"-"\ufefc",
+         "\uff04",
+         "\uff21"-"\uff3a",
+         "\uff3f",
+         "\uff41"-"\uff5a",
+         "\uff65"-"\uffbe",
+         "\uffc2"-"\uffc7",
+         "\uffca"-"\uffcf",
+         "\uffd2"-"\uffd7",
+         "\uffda"-"\uffdc",
+         "\uffe0"-"\uffe1",
+         "\uffe5"-"\uffe6"
+      ]
+  >
+|
+  < #PART_LETTER:
+      [  // all chars for which Character.isIdentifierPart is true
+         "\u0000"-"\u0008",
+         "\u000e"-"\u001b",
+         "$",
+         "0"-"9",
+         "A"-"Z",
+         "_",
+         "a"-"z",
+         "\u007f"-"\u009f",
+         "\u00a2"-"\u00a5",
+         "\u00aa",
+         "\u00b5",
+         "\u00ba",
+         "\u00c0"-"\u00d6",
+         "\u00d8"-"\u00f6",
+         "\u00f8"-"\u021f",
+         "\u0222"-"\u0233",
+         "\u0250"-"\u02ad",
+         "\u02b0"-"\u02b8",
+         "\u02bb"-"\u02c1",
+         "\u02d0"-"\u02d1",
+         "\u02e0"-"\u02e4",
+         "\u02ee",
+         "\u0300"-"\u034e",
+         "\u0360"-"\u0362",
+         "\u037a",
+         "\u0386",
+         "\u0388"-"\u038a",
+         "\u038c",
+         "\u038e"-"\u03a1",
+         "\u03a3"-"\u03ce",
+         "\u03d0"-"\u03d7",
+         "\u03da"-"\u03f3",
+         "\u0400"-"\u0481",
+         "\u0483"-"\u0486",
+         "\u048c"-"\u04c4",
+         "\u04c7"-"\u04c8",
+         "\u04cb"-"\u04cc",
+         "\u04d0"-"\u04f5",
+         "\u04f8"-"\u04f9",
+         "\u0531"-"\u0556",
+         "\u0559",
+         "\u0561"-"\u0587",
+         "\u0591"-"\u05a1",
+         "\u05a3"-"\u05b9",
+         "\u05bb"-"\u05bd",
+         "\u05bf",
+         "\u05c1"-"\u05c2",
+         "\u05c4",
+         "\u05d0"-"\u05ea",
+         "\u05f0"-"\u05f2",
+         "\u0621"-"\u063a",
+         "\u0640"-"\u0655",
+         "\u0660"-"\u0669",
+         "\u0670"-"\u06d3",
+         "\u06d5"-"\u06dc",
+         "\u06df"-"\u06e8",
+         "\u06ea"-"\u06ed",
+         "\u06f0"-"\u06fc",
+         "\u070f"-"\u072c",
+         "\u0730"-"\u074a",
+         "\u0780"-"\u07b0",
+         "\u0901"-"\u0903",
+         "\u0905"-"\u0939",
+         "\u093c"-"\u094d",
+         "\u0950"-"\u0954",
+         "\u0958"-"\u0963",
+         "\u0966"-"\u096f",
+         "\u0981"-"\u0983",
+         "\u0985"-"\u098c",
+         "\u098f"-"\u0990",
+         "\u0993"-"\u09a8",
+         "\u09aa"-"\u09b0",
+         "\u09b2",
+         "\u09b6"-"\u09b9",
+         "\u09bc",
+         "\u09be"-"\u09c4",
+         "\u09c7"-"\u09c8",
+         "\u09cb"-"\u09cd",
+         "\u09d7",
+         "\u09dc"-"\u09dd",
+         "\u09df"-"\u09e3",
+         "\u09e6"-"\u09f3",
+         "\u0a02",
+         "\u0a05"-"\u0a0a",
+         "\u0a0f"-"\u0a10",
+         "\u0a13"-"\u0a28",
+         "\u0a2a"-"\u0a30",
+         "\u0a32"-"\u0a33",
+         "\u0a35"-"\u0a36",
+         "\u0a38"-"\u0a39",
+         "\u0a3c",
+         "\u0a3e"-"\u0a42",
+         "\u0a47"-"\u0a48",
+         "\u0a4b"-"\u0a4d",
+         "\u0a59"-"\u0a5c",
+         "\u0a5e",
+         "\u0a66"-"\u0a74",
+         "\u0a81"-"\u0a83",
+         "\u0a85"-"\u0a8b",
+         "\u0a8d",
+         "\u0a8f"-"\u0a91",
+         "\u0a93"-"\u0aa8",
+         "\u0aaa"-"\u0ab0",
+         "\u0ab2"-"\u0ab3",
+         "\u0ab5"-"\u0ab9",
+         "\u0abc"-"\u0ac5",
+         "\u0ac7"-"\u0ac9",
+         "\u0acb"-"\u0acd",
+         "\u0ad0",
+         "\u0ae0",
+         "\u0ae6"-"\u0aef",
+         "\u0b01"-"\u0b03",
+         "\u0b05"-"\u0b0c",
+         "\u0b0f"-"\u0b10",
+         "\u0b13"-"\u0b28",
+         "\u0b2a"-"\u0b30",
+         "\u0b32"-"\u0b33",
+         "\u0b36"-"\u0b39",
+         "\u0b3c"-"\u0b43",
+         "\u0b47"-"\u0b48",
+         "\u0b4b"-"\u0b4d",
+         "\u0b56"-"\u0b57",
+         "\u0b5c"-"\u0b5d",
+         "\u0b5f"-"\u0b61",
+         "\u0b66"-"\u0b6f",
+         "\u0b82"-"\u0b83",
+         "\u0b85"-"\u0b8a",
+         "\u0b8e"-"\u0b90",
+         "\u0b92"-"\u0b95",
+         "\u0b99"-"\u0b9a",
+         "\u0b9c",
+         "\u0b9e"-"\u0b9f",
+         "\u0ba3"-"\u0ba4",
+         "\u0ba8"-"\u0baa",
+         "\u0bae"-"\u0bb5",
+         "\u0bb7"-"\u0bb9",
+         "\u0bbe"-"\u0bc2",
+         "\u0bc6"-"\u0bc8",
+         "\u0bca"-"\u0bcd",
+         "\u0bd7",
+         "\u0be7"-"\u0bef",
+         "\u0c01"-"\u0c03",
+         "\u0c05"-"\u0c0c",
+         "\u0c0e"-"\u0c10",
+         "\u0c12"-"\u0c28",
+         "\u0c2a"-"\u0c33",
+         "\u0c35"-"\u0c39",
+         "\u0c3e"-"\u0c44",
+         "\u0c46"-"\u0c48",
+         "\u0c4a"-"\u0c4d",
+         "\u0c55"-"\u0c56",
+         "\u0c60"-"\u0c61",
+         "\u0c66"-"\u0c6f",
+         "\u0c82"-"\u0c83",
+         "\u0c85"-"\u0c8c",
+         "\u0c8e"-"\u0c90",
+         "\u0c92"-"\u0ca8",
+         "\u0caa"-"\u0cb3",
+         "\u0cb5"-"\u0cb9",
+         "\u0cbe"-"\u0cc4",
+         "\u0cc6"-"\u0cc8",
+         "\u0cca"-"\u0ccd",
+         "\u0cd5"-"\u0cd6",
+         "\u0cde",
+         "\u0ce0"-"\u0ce1",
+         "\u0ce6"-"\u0cef",
+         "\u0d02"-"\u0d03",
+         "\u0d05"-"\u0d0c",
+         "\u0d0e"-"\u0d10",
+         "\u0d12"-"\u0d28",
+         "\u0d2a"-"\u0d39",
+         "\u0d3e"-"\u0d43",
+         "\u0d46"-"\u0d48",
+         "\u0d4a"-"\u0d4d",
+         "\u0d57",
+         "\u0d60"-"\u0d61",
+         "\u0d66"-"\u0d6f",
+         "\u0d82"-"\u0d83",
+         "\u0d85"-"\u0d96",
+         "\u0d9a"-"\u0db1",
+         "\u0db3"-"\u0dbb",
+         "\u0dbd",
+         "\u0dc0"-"\u0dc6",
+         "\u0dca",
+         "\u0dcf"-"\u0dd4",
+         "\u0dd6",
+         "\u0dd8"-"\u0ddf",
+         "\u0df2"-"\u0df3",
+         "\u0e01"-"\u0e3a",
+         "\u0e3f"-"\u0e4e",
+         "\u0e50"-"\u0e59",
+         "\u0e81"-"\u0e82",
+         "\u0e84",
+         "\u0e87"-"\u0e88",
+         "\u0e8a",
+         "\u0e8d",
+         "\u0e94"-"\u0e97",
+         "\u0e99"-"\u0e9f",
+         "\u0ea1"-"\u0ea3",
+         "\u0ea5",
+         "\u0ea7",
+         "\u0eaa"-"\u0eab",
+         "\u0ead"-"\u0eb9",
+         "\u0ebb"-"\u0ebd",
+         "\u0ec0"-"\u0ec4",
+         "\u0ec6",
+         "\u0ec8"-"\u0ecd",
+         "\u0ed0"-"\u0ed9",
+         "\u0edc"-"\u0edd",
+         "\u0f00",
+         "\u0f18"-"\u0f19",
+         "\u0f20"-"\u0f29",
+         "\u0f35",
+         "\u0f37",
+         "\u0f39",
+         "\u0f3e"-"\u0f47",
+         "\u0f49"-"\u0f6a",
+         "\u0f71"-"\u0f84",
+         "\u0f86"-"\u0f8b",
+         "\u0f90"-"\u0f97",
+         "\u0f99"-"\u0fbc",
+         "\u0fc6",
+         "\u1000"-"\u1021",
+         "\u1023"-"\u1027",
+         "\u1029"-"\u102a",
+         "\u102c"-"\u1032",
+         "\u1036"-"\u1039",
+         "\u1040"-"\u1049",
+         "\u1050"-"\u1059",
+         "\u10a0"-"\u10c5",
+         "\u10d0"-"\u10f6",
+         "\u1100"-"\u1159",
+         "\u115f"-"\u11a2",
+         "\u11a8"-"\u11f9",
+         "\u1200"-"\u1206",
+         "\u1208"-"\u1246",
+         "\u1248",
+         "\u124a"-"\u124d",
+         "\u1250"-"\u1256",
+         "\u1258",
+         "\u125a"-"\u125d",
+         "\u1260"-"\u1286",
+         "\u1288",
+         "\u128a"-"\u128d",
+         "\u1290"-"\u12ae",
+         "\u12b0",
+         "\u12b2"-"\u12b5",
+         "\u12b8"-"\u12be",
+         "\u12c0",
+         "\u12c2"-"\u12c5",
+         "\u12c8"-"\u12ce",
+         "\u12d0"-"\u12d6",
+         "\u12d8"-"\u12ee",
+         "\u12f0"-"\u130e",
+         "\u1310",
+         "\u1312"-"\u1315",
+         "\u1318"-"\u131e",
+         "\u1320"-"\u1346",
+         "\u1348"-"\u135a",
+         "\u1369"-"\u1371",
+         "\u13a0"-"\u13f4",
+         "\u1401"-"\u166c",
+         "\u166f"-"\u1676",
+         "\u1681"-"\u169a",
+         "\u16a0"-"\u16ea",
+         "\u1780"-"\u17d3",
+         "\u17db",
+         "\u17e0"-"\u17e9",
+         "\u180b"-"\u180e",
+         "\u1810"-"\u1819",
+         "\u1820"-"\u1877",
+         "\u1880"-"\u18a9",
+         "\u1e00"-"\u1e9b",
+         "\u1ea0"-"\u1ef9",
+         "\u1f00"-"\u1f15",
+         "\u1f18"-"\u1f1d",
+         "\u1f20"-"\u1f45",
+         "\u1f48"-"\u1f4d",
+         "\u1f50"-"\u1f57",
+         "\u1f59",
+         "\u1f5b",
+         "\u1f5d",
+         "\u1f5f"-"\u1f7d",
+         "\u1f80"-"\u1fb4",
+         "\u1fb6"-"\u1fbc",
+         "\u1fbe",
+         "\u1fc2"-"\u1fc4",
+         "\u1fc6"-"\u1fcc",
+         "\u1fd0"-"\u1fd3",
+         "\u1fd6"-"\u1fdb",
+         "\u1fe0"-"\u1fec",
+         "\u1ff2"-"\u1ff4",
+         "\u1ff6"-"\u1ffc",
+         "\u200c"-"\u200f",
+         "\u202a"-"\u202e",
+         "\u203f"-"\u2040",
+         "\u206a"-"\u206f",
+         "\u207f",
+         "\u20a0"-"\u20af",
+         "\u20d0"-"\u20dc",
+         "\u20e1",
+         "\u2102",
+         "\u2107",
+         "\u210a"-"\u2113",
+         "\u2115",
+         "\u2119"-"\u211d",
+         "\u2124",
+         "\u2126",
+         "\u2128",
+         "\u212a"-"\u212d",
+         "\u212f"-"\u2131",
+         "\u2133"-"\u2139",
+         "\u2160"-"\u2183",
+         "\u3005"-"\u3007",
+         "\u3021"-"\u302f",
+         "\u3031"-"\u3035",
+         "\u3038"-"\u303a",
+         "\u3041"-"\u3094",
+         "\u3099"-"\u309a",
+         "\u309d"-"\u309e",
+         "\u30a1"-"\u30fe",
+         "\u3105"-"\u312c",
+         "\u3131"-"\u318e",
+         "\u31a0"-"\u31b7",
+         "\u3400"-"\u4db5",
+         "\u4e00"-"\u9fa5",
+         "\ua000"-"\ua48c",
+         "\uac00"-"\ud7a3",
+         "\uf900"-"\ufa2d",
+         "\ufb00"-"\ufb06",
+         "\ufb13"-"\ufb17",
+         "\ufb1d"-"\ufb28",
+         "\ufb2a"-"\ufb36",
+         "\ufb38"-"\ufb3c",
+         "\ufb3e",
+         "\ufb40"-"\ufb41",
+         "\ufb43"-"\ufb44",
+         "\ufb46"-"\ufbb1",
+         "\ufbd3"-"\ufd3d",
+         "\ufd50"-"\ufd8f",
+         "\ufd92"-"\ufdc7",
+         "\ufdf0"-"\ufdfb",
+         "\ufe20"-"\ufe23",
+         "\ufe33"-"\ufe34",
+         "\ufe4d"-"\ufe4f",
+         "\ufe69",
+         "\ufe70"-"\ufe72",
+         "\ufe74",
+         "\ufe76"-"\ufefc",
+         "\ufeff",
+         "\uff04",
+         "\uff10"-"\uff19",
+         "\uff21"-"\uff3a",
+         "\uff3f",
+         "\uff41"-"\uff5a",
+         "\uff65"-"\uffbe",
+         "\uffc2"-"\uffc7",
+         "\uffca"-"\uffcf",
+         "\uffd2"-"\uffd7",
+         "\uffda"-"\uffdc",
+         "\uffe0"-"\uffe1",
+         "\uffe5"-"\uffe6",
+         "\ufff9"-"\ufffb"
+      ]
+  >
+}
+
+
+/* LITERALS */
+TOKEN :
+{
+  < STRING_LITERAL:
+      "\""
+      (   (~["\"","\\","\n","\r"])
+        | ("\\"
+            ( ["n","t","b","r","f","\\","'","\""]
+            | ["0"-"7"] ( ["0"-"7"] )?
+            | ["0"-"3"] ["0"-"7"] ["0"-"7"]
+            )
+          )
+      )*
+      "\""
+  >
+}
+
+
+
+
+
+
+
+
+
+/********************************************************
+ * 语法分析 start from here	*
+ ********************************************************/
+
+// 解析器入口
+void parse() throws Exception:
+{}
+{
+	Statement()
+}
+
+
+
+
+
+/* 数据类型的语法匹配 */
+
+//所有的数据类型
+void DataType() throws Exception:
+{
+	Token dataType=null;
+}
+{
+	(
+	BasicDataType()
+|
+	dataType = <CONNECTION>
+|
+	dataType = <STATEMENT>
+|
+	dataType = <PSTATEMENT>
+|
+	dataType = <CSTATEMENT>
+|
+	List_DataType()
+|
+	dataType = <RESULTSET>
+|
+	IdealResultSet_DataType()
+|
+	dataType = <PERFORMANCERESULT>
+	)
+	{
+		if(dataType!=null)
+		{
+			type.append(dataType.toString());
+			pwLine.append(dataType.toString());
+		}
+	}
+}
+
+//基本数据类型
+void BasicDataType() :
+{
+	Token dataType = null;
+}
+{
+	(
+	dataType = <BOOLEAN>
+|
+	dataType = <CHAR>
+|
+	dataType = <BYTE>
+|
+	dataType = <SHORT>
+|
+	dataType = <INT>
+|
+	dataType = <LONG>
+|
+	dataType = <FLOAT>
+|
+	dataType = <DOUBLE>
+|
+	dataType = <STRING>
+|
+	dataType = <DECIMAL>
+|
+	dataType = <TIMESTAMP>
+  )
+  {
+	  type.append(dataType.toString());
+	  pwLine.append(dataType.toString());
+  }
+}
+
+//List数据类型
+void List_DataType() :
+{}
+{
+	<LIST> <LT> 
+	{
+		type.append("List<");
+		isList = true;
+		pwLine.append("List<");
+	}
+	BasicDataType() ">"
+	{
+		type.append(">");
+		pwLine.append(">");
+	}
+}
+
+//IdealResultSet数据类型
+void IdealResultSet_DataType() :
+{}
+{
+	<IDEALRESULTSET> <LT> 
+	{
+		type.append("IdealResultSet<");
+		pwLine.append("IdealResultSet<");
+	}
+	BasicDataType() ( ","
+	{
+		type.append(",");
+		pwLine.append(",");
+	}	
+	BasicDataType() )* ">"
+	{
+		type.append(">");
+		pwLine.append(">");
+	}
+}
+
+
+
+
+
+
+/* 变量声明及初始化 */
+void VariableDeclaration() throws Exception:
+{}
+{
+	{
+		midResultPW.print(lineNumber+",");
+	}
+  DataType() 
+	{
+		staBit|=4;
+		pwLine.append(" ");
+	}
+  VariableDeclarator(false) ( "," 
+	{
+		midResultPW.print(lineNumber+",");
+	}
+  VariableDeclarator(true) )* ";"
+  Statement()
+}
+
+void VariableDeclarator(boolean needLastType) throws Exception:
+{}
+{
+  VariableDeclaratorId(needLastType) [ "="
+	{
+		pwLine.append("=");
+		staBit|=2;
+		canPrint=false;
+	}
+  ( InitedValue()
+	{
+		pwLine.insert(0,0+":");
+		midResultPW.println(pwLine.toString());
+		staBit=0;
+		pwLine=new StringBuilder();
+	}
+  | FunctionStatement()
+	{
+		midResultPW.println(pwLine.toString());
+		staBit=0;
+		pwLine=new StringBuilder();
+	}
+  ) ]
+	{
+		if(canPrint)
+		{
+			pwLine.insert(0,0+":");
+			midResultPW.println(pwLine.toString());
+			staBit=0;
+			pwLine=new StringBuilder();
+		}
+		canPrint=true;
+	}
+}
+
+// needLastType为true时，需要用lastType插入varTypeMap
+void VariableDeclaratorId(boolean needLastType) throws Exception:
+{
+    Token varName=null;
+}
+{
+  varName = <IDENTIFIER>
+  {
+    var = varName.toString().trim();
+	if(!varValueMap.containsKey(var) && !varTypeMap.containsKey(var))
+	{
+		varValueMap.put(var,null);
+		if(needLastType)
+		{
+			varTypeMap.put(var,lastType.trim());
+			pwLine.append(lastType.trim()+" ");
+		}
+		else
+		{
+			varTypeMap.put(var,type.toString().trim());
+		}
+	}
+	pwLine.append(var);
+	if(type.length()!=0)
+	{
+		lastType = type.toString().trim();
+	}
+	type=new StringBuilder();
+  }
+}
+
+void InitedValue() throws Exception:
+{
+  Token varValue = null;
+  boolean flag = true;
+  boolean intEx = false;
+  Token partString = null;
+  StringBuilder leftString = new StringBuilder();
+}
+{
+    (
+	LOOKAHEAD(2)
+	("-"  { intEx = true; } )? 
+	varValue = <INTEGER_LITERAL>
+		{
+			if(intEx)
+			{
+				varValue.add(0,"-");
+			}
+		}
+	|
+	("-" { intEx = true; }
+	)? varValue = <FLOATING_POINT_LITERAL>
+		{
+			if(intEx)
+			{
+				varValue.add(0,"-");
+			}
+		}
+	|
+	varValue = <CHARACTER_LITERAL>
+	|
+	varValue = <STRING_LITERAL> 
+	( LOOKAHEAD(2) "+" partString= <STRING_LITERAL>
+			{
+				leftString.append(partString.toString());
+			}
+	)*
+	|
+	varValue = <TRUE>
+	|
+	varValue = <FALSE>
+	|
+	varValue = <NULL>
+	|
+	<LBRACKET> 
+		{
+			pwLine.append("[");
+		}
+	InitedValue() ( <COMMA>
+		{
+			pwLine.append(",");
+		}
+	InitedValue() )* <RBRACKET>
+		{
+			isList=false;
+			varValueMap.put(var,listValue);
+			listValue = new ArrayList<Object>();
+			flag = false;
+			
+			pwLine.append("]");
+		}
+	)
+		{
+			if(isList)
+			{
+				listValue.add(varValue);
+				pwLine.append(varValue);
+			}
+			else
+			{
+				// 避免将List的值覆盖成null
+				if(flag)
+				{
+					// multiple string 
+					if(leftString.length() != 0)
+					{
+						int startStringLength = varValue.toString().length();
+						value = varValue.toString().substring(0, startStringLength-1) + leftString.toString().replaceAll("\"", "") + "\"";
+						leftString.delete(0, leftString.length());
+					}
+					else
+						value = varValue;
+					// 避免条件表达式中的值覆盖某个变量原有的值
+					if(staBit!=8)
+					{
+						varValueMap.put(var,value);
+					}
+					pwLine.append(value);
+				}
+			}
+		}
+}
+
+
+
+
+
+
+
+/* 条件表达式 */
+void Expression() throws Exception:
+{}
+{
+		{ staBit|=8; }
+	
+	ConditionalExpression()
+	[ LOOKAHEAD(2) AssignmentOperator() Expression() ] { staBit=0; }
+}
+
+void AssignmentOperator() throws Exception:
+{
+	Token aop=null;
+}
+{
+  (aop= "=" | aop= "*=" | aop= "/=" | aop= "%=" | aop= "+=" | aop= "-=" | aop= "<<=" | aop= ">>=" | aop= ">>>=" | aop= "&=" | aop= "^=" | aop= "|=")
+	  {
+		  //pwLine.append(aop.toString());
+		  // if表示式里不可以存在这些操作符，直接报错
+		  throw new Exception(String.format("forbiddent operator %s in line %d", aop.toString(), lineNumber));
+	  }
+}
+
+void ConditionalExpression()throws Exception:
+{}
+{
+	ConditionalOrExpression() [ "?" {pwLine.append("?");} Expression() ":" {pwLine.append(":");} Expression() ]
+}
+
+void ConditionalOrExpression()throws Exception:
+{}
+{
+	ConditionalAndExpression() ( "||" { pwLine.append("||");}  ConditionalAndExpression() )*
+}
+
+void ConditionalAndExpression()throws Exception:
+{}
+{
+	InclusiveOrExpression() ( "&&" {pwLine.append("&&");}  InclusiveOrExpression() )*
+}
+
+void InclusiveOrExpression()throws Exception:
+{}
+{
+	ExclusiveOrExpression() ( "|" { pwLine.append("|"); }  ExclusiveOrExpression() )*
+}
+
+void ExclusiveOrExpression()throws Exception:
+{}
+{
+	AndExpression() ( "^"
+		{
+			pwLine.append("^");
+		}
+	
+	AndExpression() )*
+}
+
+void AndExpression()throws Exception:
+{}
+{
+	EqualityExpression() ( "&" 
+		{
+			pwLine.append("&");
+		}
+	
+	EqualityExpression() )*
+}
+
+void EqualityExpression()throws Exception:
+{
+	Token ex=null;
+}
+{
+	InstanceOfExpression() ( ( ex= "==" | ex= "!=" ) 
+		{
+			pwLine.append(ex.toString());
+		}
+	
+	InstanceOfExpression() )*
+}
+
+void InstanceOfExpression()throws Exception:
+{}
+{
+	RelationalExpression()
+}
+
+void RelationalExpression()throws Exception:
+{
+	Token reex=null;
+}
+{
+	ShiftExpression() ( ( reex= "<" | reex= ">" | reex= "<=" | reex= ">=" ) 
+		{
+			pwLine.append(reex.toString());
+		}
+	
+	ShiftExpression() )*
+}
+
+void ShiftExpression()throws Exception:
+{}
+{
+	AdditiveExpression()
+}
+
+void AdditiveExpression()throws Exception:
+{
+	Token addEx=null;
+}
+{
+	MultiplicativeExpression() ( ( addEx= "+" | addEx= "-" )
+		{
+			pwLine.append(addEx.toString());
+		}
+	
+	MultiplicativeExpression() )*
+}
+
+void MultiplicativeExpression()throws Exception:
+{
+	Token mulEx=null;
+}
+{
+	UnaryExpression() ( ( mulEx="*" | mulEx="/" | mulEx="%" ) { pwLine.append(mulEx.toString()); }
+	
+	UnaryExpression() )*
+}
+
+void UnaryExpression()throws Exception:
+{
+	Token op=null;
+	Token var=null;
+}
+{
+	LOOKAHEAD(3)
+	( op= "+" | op= "-" ) { pwLine.append(op.toString()); }
+	
+	UnaryExpression()
+|
+	UnaryExpressionNotPlusMinus()
+|
+	var= <IDENTIFIER> { pwLine.append(var.toString()); }
+|
+	InitedValue()
+}
+
+void UnaryExpressionNotPlusMinus()throws Exception:
+{
+	Token op=null;
+}
+{
+	( op= "~" | op= "!" ) { pwLine.append(op.toString()); }
+	
+	UnaryExpression()
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* Statement语法 */
+
+void Statement() throws Exception :
+{}
+{
+	LOOKAHEAD(2)
+	Block()
+|
+	EmptyStatement()
+|
+	VariableDeclaration()
+| 
+	AssignValue()
+|
+		{
+			midResultPW.print(lineNumber+",");
+		}
+	FunctionStatement() <SEMICOLON>
+		{
+			midResultPW.println(pwLine.toString());
+			staBit=0;
+			pwLine=new StringBuilder();
+		}
+	Statement()
+|
+	IfStatement()
+|
+	WhileStatement()
+|
+	<EOF>
+|
+	"}"
+		{
+			midResultPW.println(lineNumber+",6:}");
+		}
+|
+	<ELSE>
+		{
+			midResultPW.println(lineNumber+",4:else{");
+		}
+	Statement()
+}
+
+void Block() throws Exception:
+{}
+{
+	"{" BlockStatement() 
+	Statement()
+}
+
+void BlockStatement() throws Exception:
+{}
+{
+	LOOKAHEAD( DataType() <IDENTIFIER> )
+	VariableDeclaration()
+|
+	Statement()
+}
+
+//给变量赋值的语句
+void AssignValue() throws Exception :
+{}
+{
+		{ midResultPW.print(lineNumber+","); }
+	VariableDeclaratorId(false) "="
+		{
+			pwLine.append("=");
+			staBit|=2;
+		}
+	( FunctionStatement()
+		{
+			midResultPW.println(pwLine.toString());
+			staBit=0;
+			pwLine=new StringBuilder();
+		}
+	| InitedValue()
+		{
+			pwLine.insert(0,0+":");
+			midResultPW.println(pwLine.toString());
+			staBit=0;
+			pwLine=new StringBuilder();
+		}
+	) <SEMICOLON>
+	Statement()
+}
+
+//功能性语句
+void FunctionStatement() throws Exception :
+{}
+{
+	( 
+	get_conn() | get_stat() | get_pstat()  |  get_cstat() | sql() |	psql() |  csql()  |	tx() |	verify() |	sleep() | error()|	st()  |
+	import_dbi() |	clear_dbi() | import_irs() | sys() |	def_proc()  | contain() | calculate() | index_of() | generate_random_data() |
+	cpu() | mem() | disk() | net() | table() | column() | import_tbl() | clear_tbl() | txn() | end_txn() | txn_loading() | multiple() |
+	end_multiple() | branch() | branch_delimiter() | end_branch() | insert() | replace() | select() | delete()| update()| select_for_update() |
+	parall() | mid_parall() | end_parall()
+	)
+		{
+			switch(staBit)
+			{
+				case 15:pwLine.insert(0,7+":");break;
+				case 31:pwLine.insert(0,8+":");break;
+				case 7: pwLine.insert(0,3+":");break;
+				case 3: pwLine.insert(0,2+":");break;
+				case 1: pwLine.insert(0,1+":");break;
+				default:break;
+			}
+		}
+}
+
+void EmptyStatement() throws Exception:
+{}
+{
+	<SEMICOLON>
+	Statement()
+}
+
+void IfStatement() throws Exception:
+{}
+{
+	<IF> <LPAREN> Expression() <RPAREN>
+		{
+			midResultPW.print(lineNumber+",4:if[");
+			midResultPW.println(pwLine.toString()+"]{");
+			staBit=0;
+			pwLine=new StringBuilder();
+		}
+	Statement() 
+	Statement()
+}
+
+void WhileStatement() throws Exception:
+{
+	
+}
+{
+	<WHILE> <LPAREN> Expression() <RPAREN>
+		{
+		  midResultPW.print(lineNumber+",5:while[");
+		  midResultPW.println(pwLine.toString()+"]{");
+		  staBit=0;
+		  pwLine=new StringBuilder();
+		}
+	Statement()
+	Statement()
+}
+//void WhileStatement() throws Exception:
+//{
+//	Token loopCount=null;
+//}
+//{
+//	<WHILE> <LPAREN> loopCount= <INTEGER_LITERAL> <RPAREN>
+//		{
+//			midResultPW.println(lineNumber+",5:while["+loopCount.toString()+"]{");
+//		}
+//	Statement()
+//	Statement()
+//}
+
+
+
+
+
+
+
+
+/*	关键字语句	*/
+
+void get_conn():
+{
+	Token value=null;
+}
+{
+	<GET_CONN> <LBRACKET> value = <MS_CATEGORY> <RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("get_conn["+value.toString()+"]");
+		}
+}
+
+void get_stat() throws Exception:
+{
+	Token conName=null;
+}
+{
+	<GET_STAT> <LBRACKET> conName = <IDENTIFIER> <RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("get_stat["+conName.toString()+"]");
+			if(varTypeMap.get(conName.toString())==null || !varTypeMap.get(conName.toString()).equals("Connection"))
+			{
+				throw new Exception(String.format("type of %s doesn't match or declared", conName));
+			}
+		}
+}
+
+void get_pstat()throws Exception:
+{
+	Token conName =null;
+	Token sql=null;
+	Token dataType=null;
+}
+{
+	<GET_PSTAT> <LBRACKET> conName= <IDENTIFIER> <SEMICOLON> sql= <STRING_LITERAL> <SEMICOLON>
+		{
+			staBit|=1;
+			pwLine.append("get_pstat["+conName.toString()+";"+sql.toString()+";");
+			if(varTypeMap.get(conName.toString())==null || !varTypeMap.get(conName.toString()).equals("Connection"))
+			{
+				throw new Exception(String.format("type of %s doesn't match or declared", conName));
+			}
+			int length = sql.toString().length();
+			SQLUtils.parseStatements(sql.toString().substring(1, length-1), DbmsBrand.getBrand(brand.getBrand()));
+		}
+	((dataType = <BOOLEAN> | dataType = <CHAR> | dataType = <BYTE> | dataType = <SHORT> | dataType = <INT> | dataType = <LONG> |
+		dataType = <FLOAT> | dataType = <DOUBLE> | dataType = <STRING> | dataType = <DECIMAL> | dataType = <TIMESTAMP>)
+		{
+			pwLine.append(dataType.toString());
+		}
+	( <COMMA>
+		{
+			pwLine.append(",");
+		}
+	)? )* <RBRACKET> { pwLine.append("]"); }
+}
+
+void get_cstat()throws Exception:
+{
+	Token conName=null;
+	Token sql=null;
+	Token dataType=null;
+}
+{
+	<GET_CSTAT> <LBRACKET> conName= <IDENTIFIER> <SEMICOLON> sql= <STRING_LITERAL> <SEMICOLON>
+		{
+			staBit|=1;
+			pwLine.append("get_cstat["+conName.toString()+";"+sql.toString()+";");
+			if(varTypeMap.get(conName.toString())==null || !varTypeMap.get(conName.toString()).equals("Connection"))
+			{
+				throw new Exception(String.format("type of %s doesn't match or declared", conName));
+			}
+			int length = sql.toString().length();
+			SQLUtils.parseStatements(sql.toString().substring(1, length-1), DbmsBrand.getBrand(brand.getBrand()));
+		}
+	((dataType = <BOOLEAN> | dataType = <CHAR> | dataType = <BYTE> | dataType = <SHORT> | dataType = <INT> | dataType = <LONG> |
+		dataType = <FLOAT> | dataType = <DOUBLE> | dataType = <STRING> | dataType = <DECIMAL> | dataType = <TIMESTAMP>)
+		{
+			pwLine.append(dataType.toString());
+		}
+	( <COMMA>
+		{
+			pwLine.append(",");
+		}
+	)? )* <RBRACKET> { pwLine.append("]"); }
+}
+
+
+//void sql() throws Exception :
+//{
+//	Token sql=null;
+//	Token err_message=null;
+//	Token statName=null;
+//	Token sign=null;
+//}
+//{
+//	<SQL> <LBRACKET> sql= <STRING_LITERAL> <SEMICOLON> statName= <IDENTIFIER>  (<SEMICOLON> sign= <ERROR>(<LPAREN> err_message= <STRING_LITERAL> <RPAREN>)?)? <RBRACKET>
+//		{
+//			staBit|=1;
+//			pwLine.append("sql["+sql.toString()+";"+statName.toString());
+//			pwLine.append(sign == null ? "" : ";"+sign.toString());
+//			pwLine.append(err_message == null ? "" : ";"+err_message.toString());
+//			pwLine.append("]");
+//			if(varTypeMap.get(statName.toString())==null || !varTypeMap.get(statName.toString()).equals("Statement"))
+//			{
+//				throw new Exception(String.format("type of %s doesn't match or declared", statName));
+//			}
+////			int length = sql.toString().length();
+////			SQLUtils.parseStatements(sql.toString().substring(1, length-1), DbmsBrand.getBrand(brand.getBrand()));
+//		}
+//}
+
+void sql() throws Exception :
+{
+	Token sql=null;
+	Token err_message=null;
+	Token sign=null;
+}
+{
+	<SQL> <LBRACKET> sql= <STRING_LITERAL>  (<SEMICOLON> sign= <ERROR>(<LPAREN> err_message= <STRING_LITERAL> <RPAREN>)?)? <RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("sql["+sql.toString());
+			pwLine.append(sign == null ? "" : ";"+sign.toString());
+			pwLine.append(err_message == null ? "" : ";"+err_message.toString());
+			pwLine.append("]");
+//			if(varTypeMap.get(statName.toString())==null || !varTypeMap.get(statName.toString()).equals("Statement"))
+//			{
+//				throw new Exception(String.format("type of %s doesn't match or declared", statName));
+//			}
+//			int length = sql.toString().length();
+//			SQLUtils.parseStatements(sql.toString().substring(1, length-1), DbmsBrand.getBrand(brand.getBrand()));
+		}
+}
+
+Token parameter() throws Exception:
+{
+	Token value = null;
+	boolean intEx = false;
+}
+{
+	(
+	LOOKAHEAD(2)
+	("-"
+		{
+			intEx = true;
+		}
+	)? value = <INTEGER_LITERAL>
+		{
+			if(intEx)
+			{
+				value.add(0,"-");
+			}
+		}
+	|
+	("-" { intEx = true; }
+	)? value = <FLOATING_POINT_LITERAL>
+		{
+			if(intEx)
+			{
+				value.add(0,"-");
+			}
+		}
+	|
+	value = <CHARACTER_LITERAL>
+	|
+	value = <STRING_LITERAL>
+	|
+	value = <TRUE>
+	|
+	value = <FALSE>
+	|
+	value = <NULL>
+	) { return value; }
+}
+
+void psql()throws Exception:
+{
+	Token pstatName=null;
+	Token sign=null;
+	Token err_message=null;
+	Token variableName = null;
+	Token value=null;
+}
+{
+	<PSQL> <LBRACKET> pstatName = <IDENTIFIER> 
+		{
+			staBit|=1;
+			pwLine.append("psql["+pstatName.toString());
+			
+			if(varTypeMap.get(pstatName.toString())==null || !varTypeMap.get(pstatName.toString()).equals("PStatement"))
+			{
+				throw new Exception(String.format("type of %s doesn't match or declared", pstatName));
+			}
+		}
+	
+	[ LOOKAHEAD(2)
+	<SEMICOLON> { pwLine.append(";"); }
+	(variableName= <IDENTIFIER> | value= parameter()) 
+		{
+			if(variableName!=null)
+			{
+				pwLine.append(variableName.toString());
+				if(varTypeMap.get(variableName.toString()) == null)
+				{
+					throw new Exception(String.format("type of %s doesn't declared", variableName));
+				}
+				variableName=null;
+			}
+			else if(value!=null)
+			{
+				pwLine.append(value.toString());
+				value = null;
+			}
+		}
+	]
+	( <COMMA> (variableName= <IDENTIFIER> | value= parameter())
+		{
+			if(variableName!=null)
+			{
+				pwLine.append(","+variableName.toString());
+				if(varTypeMap.get(variableName.toString()) == null)
+				{
+					throw new Exception(String.format("type of %s doesn't declared", variableName));
+				}
+				variableName=null;
+			}
+			else if(value!=null)
+			{
+				pwLine.append(","+value.toString());
+				value=null;
+			}
+		}
+	)*
+	(<SEMICOLON> sign= <ERROR>(<LPAREN> err_message= <STRING_LITERAL> <RPAREN>)?)? <RBRACKET>
+		{
+		    pwLine.append(sign == null ? "" : ";"+sign.toString());
+			pwLine.append(err_message == null ? "" : ";"+err_message.toString());
+			pwLine.append("]");
+		}
+}
+
+void csql()throws Exception:
+{
+	Token cstatName=null;
+	Token sign=null;
+	Token number=null;
+	Token variableName=null;
+	Token value=null;
+	Token proc_param_type=null;
+}
+{
+	<CSQL> <LBRACKET> cstatName= <IDENTIFIER> <SEMICOLON>
+		{
+			staBit|=1;
+			pwLine.append("csql["+cstatName.toString()+";");
+			
+			if(varTypeMap.get(cstatName.toString())==null || !varTypeMap.get(cstatName.toString()).equals("CStatement"))
+			{
+				throw new Exception(String.format("type of %s doesn't match or declared", cstatName));
+			}
+		}
+	(sign= "-")? number= <INTEGER_LITERAL>
+		{
+			pwLine.append(sign==null?number.toString():"-"+number.toString());
+		}
+	<SEMICOLON> { pwLine.append(";"); }
+	[ (variableName= <IDENTIFIER> | value= parameter()) proc_param_type= <PROCEDURE_PARAM_TYPE> 
+		{
+			if(variableName!=null)
+			{
+				pwLine.append(variableName.toString());
+				if(varTypeMap.get(variableName.toString())==null)
+				{
+					throw new Exception(String.format("type of %s doesn't declared", variableName));
+				}
+				variableName=null;
+			}
+			else if(value!=null)
+			{
+				pwLine.append(value.toString());
+				value=null;
+			}
+			pwLine.append(" ").append(proc_param_type.toString());
+			proc_param_type=null;
+		}
+	]
+	( <COMMA> (variableName= <IDENTIFIER> | value= parameter()) proc_param_type= <PROCEDURE_PARAM_TYPE>
+		{
+			if(variableName!=null)
+			{
+				pwLine.append(",").append(variableName.toString());
+				if(varTypeMap.get(variableName.toString())==null)
+				{
+					throw new Exception(String.format("type of %s doesn't declared", variableName));
+				}
+				variableName=null;
+			}
+			else if(value!=null)
+			{
+				pwLine.append(",").append(value.toString());
+				value=null;
+			}
+			pwLine.append(" ").append(proc_param_type.toString());
+			proc_param_type=null;
+		}
+	)* <RBRACKET>
+		{
+			pwLine.append("]");
+		}
+}
+
+void tx() throws Exception:
+{
+	Token conName=null;
+	Token op=null;
+}
+{
+	<TX> <LBRACKET> conName= <IDENTIFIER> <SEMICOLON> op= <TX_OP> <RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("tx["+conName.toString()+";"+op.toString()+"]");
+			
+			if(varTypeMap.get(conName.toString())==null || !varTypeMap.get(conName.toString()).equals("Connection"))
+			{
+				throw new Exception(String.format("type of %s doesn't match or declared", conName));
+			}
+		}
+}
+
+// VERIFY关键字语法分析
+void verify() throws Exception:
+{
+	Token var1 = null;
+	Token var2 = null;
+	Token operator = null;
+	Token setType = null;
+}
+{
+	<VERIFY> <LBRACKET> var1= <IDENTIFIER> <SEMICOLON> 
+	( operator= <EQ> | operator= <NE> | operator= <GT> | operator= <LT> | operator= <GE> | 
+	operator= <LE> |operator= <CONTAINS> | operator= <ALL_ARE>)  <SEMICOLON> var2= <IDENTIFIER> (<SEMICOLON> setType = <SET_TYPE>)?
+	<RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("verify["+var1+";");
+			pwLine.append(operator);
+			pwLine.append(";"+var2);
+			if (setType != null)
+				pwLine.append(";").append(setType);
+			pwLine.append("]");
+			
+			if (varTypeMap.get(var1.toString()) == null)
+				throw new Exception(String.format("type of %s doesn't declared", var1));
+			if (varTypeMap.get(var2.toString()) == null)
+				throw new Exception(String.format("type of %s doesn't declared", var2));
+		}
+}
+
+void sleep():
+{
+	Token number=null;
+	Token unit=null;
+}
+{
+	<SLEEP> <LBRACKET> number= <INTEGER_LITERAL> <SEMICOLON> unit= <TIME_UNIT> <RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("sleep["+number+";"+unit+"]");
+		}
+}
+
+void error():
+{}
+{
+	<ERROR> 
+		{
+			staBit|=1;
+			pwLine.append("error");
+		}
+}
+
+// Stress test
+void st():
+{
+	Token number1 = null;
+	Token number2 = null;
+	Token result_handle = null;
+	Token exec_type = null;
+}
+{
+	<ST> <LBRACKET> number1= <INTEGER_LITERAL> <SEMICOLON> number2= <INTEGER_LITERAL> <SEMICOLON> result_handle= <RESULT_HANDLE> <SEMICOLON> exec_type= <EXECUTE_TYPE> <RBRACKET>
+		{
+			staBit|=1;
+			pwLine.append("st[").append(number1.toString()).append(";");
+			pwLine.append(number2.toString()).append(";");
+			pwLine.append(result_handle.toString()).append(";");
+			pwLine.append(exec_type.toString()).append("]");
+		}
+}
+
+void import_dbi() throws Exception:
+{
+	Token str=null;
+}
+{
+	<IMPORT_DBI> <LBRACKET> str= <STRING_LITERAL> <RBRACKET>
+		{
+			staBit|=1;
+			String fileName = str.toString();
+			if(fileName.endsWith(".dbi"))
+				fileName = fileName.substring(0,fileName.length()-4);
+			if(!new File(TestController.getDatabaseInstancePath()+TestController.getCurrentGroup()+"/"+fileName.substring(1,fileName.length()-1)+".dbi").exists())
+				throw new Exception("file "+fileName.substring(1,fileName.length()-1)+".result doesn't exist in line "+lineNumber);
+			pwLine.append("import_dbi["+fileName+"]");
+		}
+}
+
+void clear_dbi() throws Exception:
+{
+	Token str=null;
+}
+{
+	<CLEAR_DBI> <LBRACKET> str= <STRING_LITERAL> <RBRACKET>
+		{
+			staBit|=1;
+			String fileName = str.toString();
+			if(fileName.endsWith(".dbi"))
+				fileName = fileName.substring(0,fileName.length()-4);
+			if(!new File(TestController.getDatabaseInstancePath()+TestController.getCurrentGroup()+"/"+fileName.substring(1,fileName.length()-1)+".dbi").exists())
+				throw new Exception("file "+fileName.substring(1,fileName.length()-1)+".result doesn't exist in line "+lineNumber);
+			pwLine.append("clear_dbi["+fileName+"]");
+		}
+}
+
+// position从0开始计数
+void import_irs() throws Exception:
+{
+	Token source=null;
+	Token var1=null;
+	Token var2=null;
+	Token position = null;
+}
+{
+	<IMPORT_IRS> <LBRACKET> source= <STRING_LITERAL> <SEMICOLON>
+		{
+			staBit|=1;
+			String fileName = source.toString();
+			if(fileName.endsWith(".result"))
+				fileName = fileName.substring(0,fileName.length()-7);
+			if(!new File(TestController.getIdealResultSetPath()+TestController.getCurrentGroup()+"/"+fileName.substring(1,fileName.length()-1)+".result").exists())
+				throw new Exception("file "+fileName.substring(1,fileName.length()-1)+".result doesn't exist in line "+lineNumber);
+			
+			pwLine.append("import_irs["+fileName+"][");
+		}
+	[ var1= <IDENTIFIER> position= <INTEGER_LITERAL>
+		{
+			if(varTypeMap.get(var1.toString())==null || !varTypeMap.get(var1.toString()).startsWith("IdealResultSet"))
+				throw new Exception("type of "+var1+" doesn't match or declared");
+			
+			pwLine.append(var1+" "+position);
+		}
+	] ( <COMMA> [ var2= <IDENTIFIER> position= <INTEGER_LITERAL>
+		{
+			if(varTypeMap.get(var2.toString())==null || !varTypeMap.get(var2.toString()).startsWith("IdealResultSet"))
+				throw new Exception("type of "+var2+" doesn't match or declared");
+			
+			pwLine.append(","+var2+" "+position);
+		}
+	] )* <RBRACKET>
+		{
+			pwLine.append("]");
+		}
+}
+
+void sys():
+{
+	String sys=null;
+	Token shell=null;
+	Token IP=null;
+}
+{
+	<SYS> <LBRACKET> 
+	(
+		sys= sys_statement()
+	|
+		shell= <STRING_LITERAL> <SEMICOLON> IP= <IP_ADDRESS> 
+	) <RBRACKET>
+		{
+			staBit|=1;
+			if(sys!=null)
+			{
+				pwLine.append("sys["+sys+"]");
+			}
+			else
+			{
+				pwLine.append("sys["+shell.toString()+"]");
+				pwLine.append("["+IP.toString()+"]");
+			}
+		}
+}
+
+void def_proc() throws Exception :
+{
+	Token str_var =null;
+	Token stat_var = null;
+}
+{
+	<DEF_PROC> <LBRACKET> str_var= <IDENTIFIER> <SEMICOLON> stat_var= <IDENTIFIER> <RBRACKET>
+		{
+			if(varTypeMap.get(str_var.toString())==null || !varTypeMap.get(str_var.toString()).equals("String"))
+			{
+				throw new Exception("type of "+str_var+" doesn't match or declared");
+			}
+			if(varTypeMap.get(stat_var.toString())==null || !varTypeMap.get(stat_var.toString()).equals("Statement"))
+			{
+				throw new Exception("type of "+stat_var+" doesn't match or declared");
+			}
+			
+			staBit|=1;
+			pwLine.append("def_proc[" + str_var.toString() + ";" + stat_var.toString() + "]");
+		}
+}
+
+void contain() throws Exception:
+{
+	Token explain_str=null;// CEDAR explain得到的字符串
+	Token pattern_str=null;// 匹配的字符串
+	Token number=null;
+}
+{
+	<CONTAIN> <LBRACKET>  (explain_str= <IDENTIFIER> | explain_str= <STRING_LITERAL> ) <SEMICOLON> (pattern_str= <IDENTIFIER> | pattern_str= <STRING_LITERAL> ) <SEMICOLON> ( number= <INTEGER_LITERAL> | number= <IDENTIFIER> ) <RBRACKET>
+		{
+			if(!explain_str.toString().matches("\".*"))
+			{
+				//此时是变量，是否已声明或类型正确
+				if(!varTypeMap.containsKey(explain_str.toString()) || !varTypeMap.get(explain_str.toString()).equals("String"))
+					throw new Exception(explain_str.toString()+" hasn't been defined or it's data type is mismatch");
+			}
+			if(!pattern_str.toString().matches("\".*"))
+			{
+				//此时是变量，是否已声明或类型正确
+				if(!varTypeMap.containsKey(pattern_str.toString()) || !varTypeMap.get(pattern_str.toString()).equals("String"))
+					throw new Exception(pattern_str.toString()+" hasn't been defined or it's data type is mismatch");
+			}
+			if(!number.toString().matches("(\\p{Digit})+"))
+			{
+				//此时是变量，是否已声明或类型正确
+				if(!varTypeMap.containsKey(number.toString()) || (!varTypeMap.get(number.toString()).equals("int") && !varTypeMap.get(number.toString()).equals("long") && !varTypeMap.get(number.toString()).equals("float") && !varTypeMap.get(number.toString()).equals("double")))
+				{
+					// System.out.println(varTypeMap.get(number.toString()));
+					throw new Exception(number.toString()+" hasn't been defined or it's data type is mismatch");
+				}
+			}
+			staBit|=1;
+			pwLine.append("contain[").append(explain_str.toString()).append(";").append(pattern_str.toString()).append(";").append(number.toString()).append("]");
+		}
+}
+
+void calculate():
+{
+	Token exp=null;
+}
+{
+	exp= <CALCULATION>
+		{
+			staBit|=1;
+			pwLine.append(exp.toString());
+		}
+}
+
+void index_of() throws Exception :
+{
+	Token variable = null;
+	Token row = null;
+	Token column = null;
+	Token dataType = null;
+}
+{
+	<INDEX_OF> <LBRACKET> variable= <IDENTIFIER> <SEMICOLON> row= <INTEGER_LITERAL> 
+		{
+			// the variable's data type must be List, IdealResultSet or ResultSet
+			if(!varTypeMap.get(variable.toString()).startsWith("List") && !varTypeMap.get(variable.toString()).equals("ResultSet") && !varTypeMap.get(variable.toString()).startsWith("IdealResultSet"))
+				throw new Exception("the variable's data type must be List or IdealResultSet or ResultSet");
+			staBit|=1;
+			pwLine.append("index_of[").append(variable.toString()).append(";").append(row.toString());
+		}
+	( LOOKAHEAD(2) <COMMA> column= <INTEGER_LITERAL> <SEMICOLON> 
+		(dataType = <BOOLEAN> | dataType = <CHAR> | dataType = <BYTE> | dataType = <SHORT> | dataType = <INT> | dataType = <LONG> |
+		dataType = <FLOAT> | dataType = <DOUBLE> | dataType = <STRING> | dataType = <DECIMAL> | dataType = <TIMESTAMP>)
+		{
+			if(varTypeMap.get(variable.toString()).startsWith("List"))
+				throw new Exception("the variable's data type must be IdealResultSet or ResultSet");
+			pwLine.append(',').append(column.toString()).append(";").append(dataType.toString());
+		}
+	)? <RBRACKET>
+		{
+			pwLine.append(']');
+		}
+}
+
+// Useless temporarily
+void generate_random_data() :
+{
+	Token sql = null;
+	Token dataType = null;
+	Token extra = null;
+	Token rows = null;
+}
+{
+	<GRD> <LBRACKET> sql= <STRING_LITERAL> <SEMICOLON> 
+	( (dataType = <BOOLEAN> | dataType = <CHAR> | dataType = <BYTE> | dataType = <SHORT> | dataType = <INT> | dataType = <LONG> |
+		dataType = <FLOAT> | dataType = <DOUBLE> | dataType = <STRING> | dataType = <DECIMAL> | dataType = <TIMESTAMP> | dataType = <VARCHAR>) 
+		(extra= <PK> | extra= <INTEGER_LITERAL>)?
+		{
+			staBit|=1;
+			pwLine.append("grd[").append(sql.toString()).append(";").append(dataType.toString());
+			if(extra != null)
+			{
+				pwLine.append(' ').append(extra.toString());
+				extra = null;
+			}
+		}
+	)?
+	( <COMMA> (dataType = <BOOLEAN> | dataType = <CHAR> | dataType = <BYTE> | dataType = <SHORT> | dataType = <INT> | dataType = <LONG> |
+		dataType = <FLOAT> | dataType = <DOUBLE> | dataType = <STRING> | dataType = <DECIMAL> | dataType = <TIMESTAMP> | dataType = <VARCHAR>) 
+		(extra= <PK> | extra= <INTEGER_LITERAL>)?
+		{
+			pwLine.append(',').append(dataType.toString());
+			if(extra != null)
+			{
+				pwLine.append(' ').append(extra.toString());
+				extra = null;
+			}
+		}
+	)*
+	<SEMICOLON> rows= <INTEGER_LITERAL> <RBRACKET>
+		{
+			pwLine.append(";").append(rows.toString()).append("]");
+		}
+}
+
+void cpu():
+{
+  Token ip=null;
+  Token core=null;
+  Token time=null;
+}
+{
+  <CPU> <LBRACKET> ip=<IP_ADDRESS>
+  {
+    staBit|=1;
+    pwLine.append("cpu[").append(ip.toString());
+  }
+  <SEMICOLON> core=<INTEGER_LITERAL>
+  {
+    pwLine.append(";");
+    pwLine.append(core.toString());
+  }
+  <SEMICOLON> time=<INTEGER_LITERAL> <RBRACKET>
+  {
+    pwLine.append(";");
+    pwLine.append(time.toString());
+    pwLine.append("]");
+  }
+}
+
+void mem():
+{
+  Token ip=null;
+  Token size=null;
+  Token time=null;
+}
+{
+  <MEM> <LBRACKET> ip=<IP_ADDRESS>
+  {
+    staBit|=1;
+    pwLine.append("mem[").append(ip.toString());
+  }
+  <SEMICOLON> size=<INTEGER_LITERAL>
+  {
+    pwLine.append(";");
+    pwLine.append(size.toString());
+  }
+  <SEMICOLON> time=<INTEGER_LITERAL> <RBRACKET>
+  {
+    pwLine.append(";");
+    pwLine.append(time.toString());
+    pwLine.append("]");
+  }
+}
+
+void disk():
+{
+  Token ip=null;
+  Token IOPS=null;
+  Token size=null;
+  Token time=null;
+}
+{
+  <DISK> <LBRACKET> ip=<IP_ADDRESS>
+  {
+    staBit|=1;
+    pwLine.append("disk[").append(ip.toString());
+  }
+  <SEMICOLON> IOPS=<INTEGER_LITERAL>
+  {
+    pwLine.append(";");
+    pwLine.append(IOPS.toString());
+  }
+  <SEMICOLON> size=<INTEGER_LITERAL>
+  {
+    pwLine.append(";");
+    pwLine.append(size.toString());
+  }
+  <SEMICOLON> time=<INTEGER_LITERAL> <RBRACKET>
+  {
+    pwLine.append(";");
+    pwLine.append(time.toString());
+    pwLine.append("]");
+  }
+}
+
+void net():
+{
+  Token ip1=null;
+  Token IOPS=null;
+  Token size=null;
+  Token ip2=null;
+  Token time=null;
+}
+{
+  <NET> <LBRACKET> ip1=<IP_ADDRESS>
+  {
+    staBit|=1;
+    pwLine.append("net[").append(ip1.toString());
+  }
+  <SEMICOLON> IOPS=<INTEGER_LITERAL>
+  {
+    pwLine.append(";");
+    pwLine.append(IOPS.toString());
+  }
+  <SEMICOLON> size=<INTEGER_LITERAL>
+  {
+    pwLine.append(";");
+    pwLine.append(size.toString());
+  }
+  <SEMICOLON> ip2=<IP_ADDRESS>
+  {
+    pwLine.append(";");
+    pwLine.append(ip2.toString());
+  }
+  <SEMICOLON> time=<INTEGER_LITERAL> <RBRACKET>
+  {
+    pwLine.append(";");
+    pwLine.append(time.toString());
+    pwLine.append("]");
+  }
+}
+
+/* sys关键字命令 */
+String sys_statement() :
+{
+	StringBuilder sys = new StringBuilder();
+	Token option_part1 = null;
+	Token option_part2 = null;
+	Token option_part3 = null;
+}
+{
+	(
+	option_part1= <IS_CLUSTER_AVAILABLE>
+	| option_part1= <AWAIT_AVAILABLE> option_part2= <INTEGER_LITERAL>
+	| option_part1= <MERGE>
+	| option_part1= <IS_MERGE_DONE> 
+	| option_part1= <AWAIT_MERGE_DONE> option_part2= <INTEGER_LITERAL>
+	| option_part1= <REELECT>
+	| option_part1= <EXIST_MASTER>
+	| option_part1= <KILL_SERVER> option_part2= <SERVER_OPTION> (option_part3= <INTEGER_LITERAL>)?
+	| option_part1= <START_SERVER> option_part2= <IDENTIFIER>
+	| option_part1= <ADD_SERVER> option_part2= <SERVER_OPTION> option_part3= <IP_ADDRESS>
+	| option_part1= <SET_MASTER> option_part2= <IDENTIFIER>
+	| option_part1= <GATHER_STATISTICS>
+	| option_part1= <IS_GATHER_DONE>
+	)
+		{
+			sys.append(option_part1);
+			if (option_part2 != null)
+				sys.append(' ').append(option_part2);
+			if (option_part3 != null)
+				sys.append(' ').append(option_part3);
+			return sys.toString();
+		}
+}
+
+
+
+/*
+* 压测模块解析
+*/
+
+void table():
+{
+	Token tbl_name=null;
+	Token tbl_size=null;
+	Token col_name=null;
+	Token col_type=null;
+	Token arg=null;
+	Token auto_increment=null;
+	Token ref_tbl_name=null;
+	Token ref_col_name=null;
+	boolean index_varchar=false;
+	boolean index=false;
+	Token num1=null;
+	Token num2=null;
+}
+{
+	<TABLE> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("table["+tbl_name.toString());
+	}
+	<SEMICOLON> tbl_size=<INTEGER_LITERAL>
+	{
+		pwLine.append(";"+tbl_size.toString());
+	}
+	<SEMICOLON> col_name=<IDENTIFIER> 
+	(col_type = <BOOLEAN> | col_type = <CHAR> | col_type = <BYTE> | col_type = <SHORT> | col_type = <INT> | col_type = <LONG> |
+		col_type = <FLOAT> | col_type = <DOUBLE> | col_type = <VARCHAR> <LPAREN> arg=<INTEGER_LITERAL> { index_varchar = true; } <RPAREN>
+		| col_type = <DECIMAL> <LPAREN> num1=<INTEGER_LITERAL> <COMMA> { index = true; } num2=<INTEGER_LITERAL> <RPAREN>
+		| col_type = <TIMESTAMP>)
+	{
+		pwLine.append(";"+col_name.toString()+" "+col_type.toString());
+		if(index)
+		{
+		  pwLine.append("("+num1.toString()+":"+num2.toString()+")");
+			index=false;
+		}
+		if(index_varchar)
+		{
+		  pwLine.append("("+arg.toString()+")");
+		  index_varchar=false;
+		}
+	}
+	//(<LPAREN> arg=<INTEGER_LITERAL> <RPAREN> {pwLine.append("("+arg.toString()+")");})?
+	(	<COMMA> col_name=<IDENTIFIER> 
+		(col_type = <BOOLEAN> | col_type = <CHAR> | col_type = <BYTE> | col_type = <SHORT> | col_type = <INT> | col_type = <LONG> |
+		col_type = <FLOAT> | col_type = <DOUBLE> | col_type = <VARCHAR> <LPAREN> arg=<INTEGER_LITERAL> { index_varchar = true; } <RPAREN>
+		| col_type = <DECIMAL> <LPAREN> num1=<INTEGER_LITERAL> <COMMA> { index = true; } num2=<INTEGER_LITERAL> <RPAREN>| col_type = <TIMESTAMP>)
+		{
+			pwLine.append(","+col_name.toString()+" "+col_type.toString());
+			if(index)
+			{
+		  		pwLine.append("("+num1.toString()+":"+num2.toString()+")");
+				index=false;
+			}
+			if(index_varchar)
+			{
+		  		pwLine.append("("+arg.toString()+")");
+		  		index_varchar=false;
+			}
+		}
+		//(<LPAREN> arg=<INTEGER_LITERAL> <RPAREN> {pwLine.append("("+arg.toString()+")");})?
+	)*
+	<SEMICOLON> <PK> <LPAREN> col_name=<IDENTIFIER> 
+	{
+		pwLine.append(";pk("+col_name.toString());
+	}
+	(
+		col_name=<IDENTIFIER>
+		{
+			pwLine.append(" "+col_name.toString());
+		}
+	)*
+	[
+		<COMMA> auto_increment=<IDENTIFIER>
+		{
+			pwLine.append(","+auto_increment.toString());
+		}
+	] <RPAREN> 
+		{ 
+			pwLine.append(")");
+		}
+	[ LOOKAHEAD(2)
+		<SEMICOLON> <FK> <LPAREN> col_name=<IDENTIFIER> <COMMA> ref_tbl_name=<IDENTIFIER> <DOT> ref_col_name=<IDENTIFIER> <RPAREN>
+		{
+			pwLine.append(";fk(");
+			pwLine.append(col_name.toString());
+			pwLine.append(","+ref_tbl_name.toString()+"."+ref_col_name.toString());
+			pwLine.append(")");
+		}
+		( 
+			<COMMA> <FK> <LPAREN> col_name=<IDENTIFIER> <COMMA> ref_tbl_name=<IDENTIFIER> 
+			<DOT> ref_col_name=<IDENTIFIER> <RPAREN>
+			{
+				pwLine.append(",fk(");
+				pwLine.append(col_name.toString());
+				pwLine.append(","+ref_tbl_name.toString()+"."+ref_col_name.toString());
+				pwLine.append(")");
+			}
+		)*
+	]
+	[
+		<SEMICOLON> <INDEX> <LPAREN> col_name=<IDENTIFIER>
+		{
+			pwLine.append(";index("+col_name.toString());
+		}
+		(LOOKAHEAD(2)
+			<COMMA> col_name=<IDENTIFIER>
+			{
+				pwLine.append(","+col_name.toString());
+			}
+		)*
+		(
+			<COMMA> <INDEX> <LPAREN> col_name=<IDENTIFIER>
+			{
+				pwLine.append(";index("+col_name.toString());
+			}
+			(LOOKAHEAD(2)
+				<COMMA> col_name=<IDENTIFIER>
+				{
+					pwLine.append(","+col_name.toString());
+				}
+			)*
+		)*
+		<RPAREN>
+		{
+			pwLine.append(")");
+		}
+	]
+	<RBRACKET>
+		{
+			pwLine.append("]");
+		} 
+}
+
+
+void column():
+{
+	Token tbl_name=null;
+	Token col_name=null;
+	Token null_ratio=null;
+	Token num=null;
+	Token min=null;
+	Token max=null;
+}
+{
+	<COLUMN> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("column["+tbl_name.toString());
+	}
+	<SEMICOLON> col_name=<IDENTIFIER>
+	{
+		pwLine.append(";"+col_name.toString());
+	}
+	<SEMICOLON> null_ratio=<FLOATING_POINT_LITERAL>
+	{
+		pwLine.append(";"+null_ratio.toString());
+	}
+	<SEMICOLON> num=<INTEGER_LITERAL> <SEMICOLON> min=<INTEGER_LITERAL> <SEMICOLON> max=<INTEGER_LITERAL> <RBRACKET>
+	{
+		pwLine.append(";"+num.toString()+";"+min.toString()+";"+max.toString()+"]");
+	}
+}
+
+
+void import_tbl():
+{
+	Token tbl_name=null;
+}
+{
+	<IMPORT_TBL> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("import_tbl["+tbl_name.toString());
+	}
+	(
+		<SEMICOLON> tbl_name=<IDENTIFIER>
+		{
+			pwLine.append(";"+tbl_name.toString());
+		}
+	)*
+	<RBRACKET> { pwLine.append("]");}
+}
+
+
+void clear_tbl():
+{
+	Token tbl_name=null;
+}
+{
+	<CLEAR_TBL> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("clear_tbl["+tbl_name.toString());
+	}
+	(
+		<SEMICOLON> tbl_name=<IDENTIFIER>
+		{
+			pwLine.append(";"+tbl_name.toString());
+		}
+	)*
+	<RBRACKET> { pwLine.append("]");}
+}
+
+void txn():
+{
+	Token ratio =null;
+}
+{
+	<TXN> <LBRACKET> ratio=<FLOATING_POINT_LITERAL> <RBRACKET>
+	{
+		staBit|=15;
+		pwLine.append("txn["+ratio.toString()+"]");
+	}
+}
+
+void end_txn():
+{}
+{
+	<END_TXN>
+	{
+		staBit|=15;
+		pwLine.append("end_txn");
+	}
+}
+
+void txn_loading():
+{
+	Token t_number=null;
+	Token times=null;
+	Token m_number=null;
+}
+{
+	<TXN_LOADING> <LBRACKET> t_number=<INTEGER_LITERAL> <SEMICOLON>
+	times=<INTEGER_LITERAL> <SEMICOLON> m_number=<INTEGER_LITERAL> <RBRACKET>
+	{
+		staBit|=31;
+		//staBit|=15;
+		pwLine.append("txn_loading["+t_number.toString());
+		pwLine.append(";"+times.toString()+";"+m_number.toString()+"]");
+	}
+}
+
+void multiple():
+{
+	Token min=null;
+	Token max=null;
+}
+{
+	<MULTIPLE> <LBRACKET> min=<INTEGER_LITERAL> <SEMICOLON> max=<INTEGER_LITERAL> <RBRACKET> 
+	{
+		staBit|=15;
+		pwLine.append("multiple["+min.toString());
+		pwLine.append(";"+max.toString()+"]");
+	}
+}
+
+void end_multiple():
+{}
+{
+	<END_MULTIPLE>
+	{
+		staBit|=15;
+		pwLine.append("end_multiple");
+	}
+}
+
+void branch():
+{
+	Token ratio=null;
+}
+{
+	<BRANCH> <LBRACKET> ratio=<FLOATING_POINT_LITERAL>
+	{
+		staBit|=15;
+		pwLine.append("branch["+ratio.toString());
+	}
+	(
+		<SEMICOLON> ratio=<FLOATING_POINT_LITERAL>
+		{
+			pwLine.append(";"+ratio.toString());
+		}
+	)*
+	<RBRACKET> { pwLine.append("]"); }
+}
+
+void branch_delimiter():
+{}
+{
+	<BRANCH_DELIMITER>
+	{
+		staBit|=15;
+		pwLine.append("branch_delimiter");
+	}
+}
+
+void end_branch():
+{}
+{
+	<END_BRANCH>
+	{
+		staBit|=15;
+		pwLine.append("end_branch");
+	}
+}
+
+void insert():
+{
+	Token tbl_name=null;
+	Token is_prepared=null;
+	Token distri_type=null;
+	Token min=null;
+	Token max=null;
+}
+{
+	<INSERT> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("insert["+tbl_name.toString());
+	}
+	[ LOOKAHEAD(2)
+		<SEMICOLON> (is_prepared=<TRUE>|is_prepared=<FALSE>)
+		{
+			pwLine.append(";"+is_prepared.toString());
+		}
+	]
+	<SEMICOLON> {pwLine.append(";");}
+	distribute()
+	<RBRACKET>
+	{
+		pwLine.append("]");
+	}
+}
+
+void replace():
+{
+	Token tbl_name=null;
+	Token is_prepared=null;
+	Token distri_type=null;
+	Token min=null;
+	Token max=null;
+}
+{
+	<REPLACE> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("replace["+tbl_name.toString());
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> (is_prepared=<TRUE>|is_prepared=<FALSE>)
+		{
+			pwLine.append(";"+is_prepared.toString());
+		}
+	]
+	<SEMICOLON> {pwLine.append(";");}
+	distribute() 
+	<RBRACKET>
+	{
+		pwLine.append("]");
+	}
+}
+
+void distribute():
+{
+	Token distribute=null;
+	Token min=null;
+	Token max=null;
+	Token arg=null;
+	Token arg2=null;
+}
+{
+	distribute=<DISTRIBUTION_TYPE> <LPAREN> 
+	{
+		pwLine.append(";"+distribute.toString()+"(");
+	}
+	min=<INTEGER_LITERAL> <COMMA> (max=<INTEGER_LITERAL>|max=<FLOATING_POINT_LITERAL>) 
+	 
+	{
+		pwLine.append(min.toString()+","+max.toString());
+	}
+	(
+		<COMMA> (arg=<INTEGER_LITERAL>|max=<FLOATING_POINT_LITERAL>)
+		{pwLine.append(","+arg.toString());}
+	)*
+	<RPAREN>
+	{
+		pwLine.append(")");
+	}
+}
+
+void select():
+{
+	Token tbl_name=null;
+	Token is_prepared=null;
+	Token distri_type=null;
+	Token min=null;
+	Token max=null;
+	Token select_expre=null;
+	Token statement=null;
+}
+{
+	<SELECT> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("select["+tbl_name.toString());
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> (is_prepared=<TRUE>|is_prepared=<FALSE>)
+		{
+			pwLine.append(";"+is_prepared.toString());
+		}
+	]
+	<SEMICOLON> {pwLine.append(";");}
+	distribute()
+	<SEMICOLON> select_expre=<STRING_LITERAL> 
+	{
+		pwLine.append(";"+select_expre);
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> {pwLine.append(";");}
+		filter()
+	]
+	[
+		<SEMICOLON> <APPEND> <LPAREN> statement=<STRING_LITERAL> <RPAREN> 
+		{
+			pwLine.append(";append("+statement.toString()+")");
+		}
+	]
+	<RBRACKET> { pwLine.append("]"); }
+}
+
+void filter():
+{
+	Token col_name=null;
+	Token op=null;
+	Token logic=null;
+}
+{
+	<FILTER> <LPAREN> col_name=<IDENTIFIER> 
+	(op=<LT>|op=<GT>|op=<GE>|op=<LE>|op=<ASSIGN>|op=<NE>|op=<PROCEDURE_PARAM_TYPE>|op=<LIKE>)
+	{
+		pwLine.append("filter("+col_name.toString()+" "+op.toString());
+	}
+	(LOOKAHEAD(2)
+		<COMMA> (logic=<BIT_AND>|logic=<BIT_OR>) <COMMA> col_name=<IDENTIFIER> 
+		(op=<LT>|op=<GT>|op=<GE>|op=<LE>|op=<ASSIGN>|op=<NE>|op=<PROCEDURE_PARAM_TYPE>|op=<LIKE>)
+		{
+			pwLine.append(","+logic.toString()+",");
+			pwLine.append(col_name.toString()+" "+op.toString());
+		}
+	)*
+	<RPAREN> { pwLine.append(")");}
+}
+
+void delete():
+{
+	Token tbl_name=null;
+	Token is_prepared=null;
+	Token distri_type=null;
+	Token min=null;
+	Token max=null;
+}
+{
+	<DELETE> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("delete["+tbl_name.toString());
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> (is_prepared=<TRUE>|is_prepared=<FALSE>)
+		{
+			pwLine.append(";"+is_prepared.toString());
+		}
+	]
+	<SEMICOLON> {pwLine.append(";");}
+	distribute()
+	[LOOKAHEAD(2)
+		<SEMICOLON> {pwLine.append(";");}
+		filter()
+	]
+	<RBRACKET> { pwLine.append("]"); }
+}
+
+void update():
+{
+	Token tbl_name=null;
+	Token is_prepared=null;
+	Token distri_type=null;
+	Token min=null;
+	Token max=null;
+	Token col_name=null;
+	Token op=null;
+	Token value=null;
+}
+{
+	<UPDATE> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("update["+tbl_name.toString());
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> (is_prepared=<TRUE>|is_prepared=<FALSE>)
+		{
+			pwLine.append(";"+is_prepared.toString());
+		}
+	]
+	<SEMICOLON> {pwLine.append(";");}
+	distribute()
+	<SEMICOLON> col_name=<IDENTIFIER>
+	{
+		pwLine.append(";"+col_name.toString());
+	}
+	[
+		(op=<PLUSASSIGN>|op=<MINUSASSIGN>|op=<STARASSIGN>|op=<SLASHASSIGN>|
+		op=<ASSIGN>|op=<REMASSIGN>|op=<ANDASSIGN>|op=<ORASSIGN>|op=<INCR>|
+		op=<DECR>)
+		{ pwLine.append(" "+op.toString()); }
+	]
+	[
+		(value=<INTEGER_LITERAL>|value=<FLOATING_POINT_LITERAL>|value=<CHARACTER_LITERAL>
+		|value=<STRING_LITERAL>|value=<NULL>|value=<TRUE>|value=<FALSE>)
+		{ pwLine.append(" "+value.toString()); }
+	]
+	(
+		<COMMA> col_name=<IDENTIFIER>
+		{
+			pwLine.append(","+col_name.toString());
+		}
+		[
+			(op=<PLUSASSIGN>|op=<MINUSASSIGN>|op=<STARASSIGN>|op=<SLASHASSIGN>|
+			op=<ASSIGN>|op=<REMASSIGN>|op=<ANDASSIGN>|op=<ORASSIGN>|op=<INCR>|
+			op=<DECR>)
+			{ pwLine.append(" "+op.toString()); }
+		]
+		[
+			(value=<INTEGER_LITERAL>|value=<FLOATING_POINT_LITERAL>|value=<CHARACTER_LITERAL>
+			|value=<STRING_LITERAL>|value=<NULL>|value=<TRUE>|value=<FALSE>)
+			{ pwLine.append(" "+value.toString()); }
+		]
+	)*
+	[LOOKAHEAD(2)
+		<SEMICOLON> {pwLine.append(";");}
+		filter()
+	]
+	<RBRACKET> { pwLine.append("]"); }
+}
+
+void select_for_update():
+{
+	Token tbl_name=null;
+	Token is_prepared=null;
+	Token distri_type=null;
+	Token min=null;
+	Token max=null;
+	Token select_expre=null;
+	Token statement=null;
+}
+{
+	<SelectForUpdate> <LBRACKET> tbl_name=<IDENTIFIER>
+	{
+		staBit|=15;
+		pwLine.append("select_for_update["+tbl_name.toString());
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> (is_prepared=<TRUE>|is_prepared=<FALSE>)
+		{
+			pwLine.append(";"+is_prepared.toString());
+		}
+	]
+	<SEMICOLON> {pwLine.append(";");}
+	distribute()
+	<SEMICOLON> select_expre=<STRING_LITERAL> 
+	{
+		pwLine.append(";"+select_expre);
+	}
+	[LOOKAHEAD(2)
+		<SEMICOLON> {pwLine.append(";");}
+		filter()
+	]
+	<RBRACKET> { pwLine.append("]"); }
+}
+
+void parall():
+{}
+{
+	<PARALL>
+	{
+		staBit|=1;
+		pwLine.append("parall");
+	}
+}
+
+void mid_parall():
+{}
+{
+	<MID_PARALL>
+	{
+		staBit|=1;
+		pwLine.append("mid_parall");
+	}
+}
+
+void end_parall():
+{}
+{
+	<END_PARALL>
+	{
+		staBit|=1;
+		pwLine.append("end_parall");
+	}
+}

@@ -1,0 +1,64 @@
+<NotepadPlus>
+    <UserLang name="woodpecker_default" ext="" udlVersion="2.1">
+        <Settings>
+            <Global caseIgnored="no" allowFoldOfComments="no" foldCompact="no" forcePureLC="0" decimalSeparator="0" />
+            <Prefix Keywords1="no" Keywords2="no" Keywords3="no" Keywords4="no" Keywords5="no" Keywords6="no" Keywords7="no" Keywords8="no" />
+        </Settings>
+        <KeywordLists>
+            <Keywords name="Comments">00## 01 02 03 04</Keywords>
+            <Keywords name="Numbers, prefix1"></Keywords>
+            <Keywords name="Numbers, prefix2"></Keywords>
+            <Keywords name="Numbers, extras1"></Keywords>
+            <Keywords name="Numbers, extras2"></Keywords>
+            <Keywords name="Numbers, suffix1"></Keywords>
+            <Keywords name="Numbers, suffix2"></Keywords>
+            <Keywords name="Numbers, range"></Keywords>
+            <Keywords name="Operators1"></Keywords>
+            <Keywords name="Operators2"></Keywords>
+            <Keywords name="Folders in code1, open"></Keywords>
+            <Keywords name="Folders in code1, middle"></Keywords>
+            <Keywords name="Folders in code1, close"></Keywords>
+            <Keywords name="Folders in code2, open"></Keywords>
+            <Keywords name="Folders in code2, middle"></Keywords>
+            <Keywords name="Folders in code2, close"></Keywords>
+            <Keywords name="Folders in comment, open"></Keywords>
+            <Keywords name="Folders in comment, middle"></Keywords>
+            <Keywords name="Folders in comment, close"></Keywords>
+            <Keywords name="Keywords1">int boolean long float double Decimal String char Connection Statement PStatement CStatement ResultSet</Keywords>
+            <Keywords name="Keywords2">List IdealResultSet</Keywords>
+            <Keywords name="Keywords3">GET_CONN GET_STAT GET_PSTAT GET_CSTAT SQL PSQL CSQL TX VERIFY SLEEP ST IMPORT_DBI CLEAR_DBI IMPORT_IRS SYS DEF_PROC CONTAIN ERROR CAL</Keywords>
+            <Keywords name="Keywords4">if else while</Keywords>
+            <Keywords name="Keywords5">master slave commit abort start microsecond millisecond second minute hour is_cluster_available await_available merge is_merge_done await_merge_done reelect exist_master kill_server start_server add_server set_master</Keywords>
+            <Keywords name="Keywords6">-master -slave -slave_all -all -ups_master -ups_slave -ups_slave_all -ups_all -rs_master -rs_slave -rs_slave_all -rs_all -lms_master -lms_slave -lms_slave_all -lms_all -ms_master -ms_master_all -ms_slave -ms_slave_all -cs_master -cs_master_all -cs_slave -cs_slave_all</Keywords>
+            <Keywords name="Keywords7"></Keywords>
+            <Keywords name="Keywords8"></Keywords>
+            <Keywords name="Delimiters"></Keywords>
+        </KeywordLists>
+        <Styles>
+            <WordsStyle name="DEFAULT" fgColor="000000" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="COMMENTS" fgColor="000000" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="LINE COMMENTS" fgColor="99994D" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="NUMBERS" fgColor="000000" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS1" fgColor="007300" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS2" fgColor="DB4700" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS3" fgColor="D20000" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="1" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS4" fgColor="00D7D7" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS5" fgColor="FFFF80" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="2" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS6" fgColor="000000" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="2" fontSize="10" nesting="0" />
+            <WordsStyle name="KEYWORDS7" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="KEYWORDS8" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="OPERATORS" fgColor="000000" bgColor="FFFFFF" fontName="&#x65B0;&#x5B8B;&#x4F53;" fontStyle="0" fontSize="10" nesting="0" />
+            <WordsStyle name="FOLDER IN CODE1" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="FOLDER IN CODE2" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="FOLDER IN COMMENT" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS1" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS2" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS3" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS4" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS5" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS6" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS7" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+            <WordsStyle name="DELIMITERS8" fgColor="000000" bgColor="FFFFFF" fontName="" fontStyle="0" nesting="0" />
+        </Styles>
+    </UserLang>
+</NotepadPlus>

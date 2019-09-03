@@ -1,0 +1,4 @@
+运行方式：
+java -jar SyntaxChecker.jar xxx
+
+xxx可以是案例名，也可以是案例目录
