@@ -20,4 +20,3 @@ stress_report.md
 !/database_instance/example.dbi
 /ideal_result_set/*
 !/ideal_result_set/example.result
-/test_case

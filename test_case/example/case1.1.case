@@ -1,0 +1,9 @@
+## one cluster case
+
+Connection conn=GET_CONN[master];
+Statement stat=GET_STAT[conn];
+Connection conn;
+SQL["drop table if exists t1;"];
+SQL["create table t1(k int primary key, c2 int);"];
+SQL["insert into t1 values(1, 1)"];
+SQL["insert into t1 values(2, 2)"];
